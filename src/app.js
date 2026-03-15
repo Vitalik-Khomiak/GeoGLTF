@@ -20,6 +20,7 @@ const viewGizmo = document.querySelector("#viewGizmo");
 const appShell = document.querySelector("#appShell");
 const backToLibraryButton = document.querySelector("#backToLibraryButton");
 const viewerResetButton = document.querySelector("#viewerResetButton");
+const quickResetButton = document.querySelector("#quickResetButton");
 const nextModelButton = document.querySelector("#nextModelButton");
 const viewerTitle = document.querySelector("#viewerTitle");
 
@@ -236,6 +237,7 @@ function bindEvents() {
   fileInput.addEventListener("change", onFileInputChange);
   resetViewButton.addEventListener("click", frameCurrentModel);
   viewerResetButton.addEventListener("click", frameCurrentModel);
+  quickResetButton.addEventListener("click", frameCurrentModel);
   closeHintButton.addEventListener("click", hideSceneHint);
   backToLibraryButton.addEventListener("click", switchToLibraryMode);
   nextModelButton.addEventListener("click", loadNextAsset);
@@ -577,7 +579,7 @@ function createAssetThumbnail(arrayBuffer) {
         const previewCamera = new THREE.PerspectiveCamera(36, 1.6, 0.1, 100);
         frameThumbnailCamera(previewCamera, previewModel);
 
-        thumbnailRenderer.setSize(256, 160, false);
+        thumbnailRenderer.setSize(640, 400, false);
         thumbnailRenderer.clear();
         thumbnailRenderer.render(thumbnailScene, previewCamera);
 
@@ -601,14 +603,11 @@ function prepareThumbnailModel(modelRoot) {
       return;
     }
 
-    if (Array.isArray(node.material)) {
-      node.material.forEach((material) => {
-        material.side = THREE.DoubleSide;
-      });
-      return;
-    }
-
-    node.material.side = THREE.DoubleSide;
+    node.material = new THREE.MeshPhongMaterial({
+      color: 0xb78155,
+      side: THREE.DoubleSide,
+      shininess: 14,
+    });
   });
 }
 
@@ -620,7 +619,7 @@ function frameThumbnailCamera(previewCamera, modelRoot) {
   const size = bounds.getSize(new THREE.Vector3());
   const center = bounds.getCenter(new THREE.Vector3());
   const safeDimension = Math.max(size.x, size.y, size.z) || 1;
-  const distance = safeDimension * 1.8;
+  const distance = safeDimension * 1.35;
 
   previewCamera.position.set(
     center.x + distance,

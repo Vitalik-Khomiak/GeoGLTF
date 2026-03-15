@@ -380,6 +380,17 @@ kbd {
   border-bottom: 1px solid rgba(19, 34, 56, 0.08);
 }
 
+.quick-action-button {
+  border: none;
+  border-radius: 999px;
+  padding: 10px 14px;
+  background: rgba(19, 34, 56, 0.12);
+  color: var(--dark-text);
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 .quick-toggle {
   display: inline-flex;
   align-items: center;
@@ -592,6 +603,11 @@ kbd {
 
   .quick-toggle {
     padding: 8px 10px;
+    font-size: 0.84rem;
+  }
+
+  .quick-action-button {
+    padding: 8px 12px;
     font-size: 0.84rem;
   }
 
