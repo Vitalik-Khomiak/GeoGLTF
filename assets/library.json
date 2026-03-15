@@ -1,3 +1,16 @@
 {
-  "assets": []
+  "assets": [
+    {
+      "title": "Куб",
+      "description": "Базова модель для просторового аналізу",
+      "file": "./assets/models/cube.glb",
+      "sizeLabel": "1.69 KB"
+    },
+    {
+      "title": "Куб зі зрізом",
+      "description": "Модель для аналізу перерізів та просторового уявлення",
+      "file": "./assets/models/cube_slice.glb",
+      "sizeLabel": "3.05 KB"
+    }
+  ]
 }
