@@ -19,6 +19,7 @@ const closeHintButton = document.querySelector("#closeHintButton");
 const viewGizmo = document.querySelector("#viewGizmo");
 const appShell = document.querySelector("#appShell");
 const backToLibraryButton = document.querySelector("#backToLibraryButton");
+const viewerResetButton = document.querySelector("#viewerResetButton");
 const nextModelButton = document.querySelector("#nextModelButton");
 const viewerTitle = document.querySelector("#viewerTitle");
 
@@ -27,6 +28,7 @@ const renderer = createRenderer(canvas);
 const camera = createCamera();
 const controls = createControls(camera, renderer.domElement);
 const loader = new GLTFLoader();
+const thumbnailLoader = new GLTFLoader();
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 const mathStyle = {
@@ -43,6 +45,17 @@ const gizmoScene = new THREE.Scene();
 const gizmoCamera = new THREE.PerspectiveCamera(36, 1, 0.1, 10);
 const gizmoRoot = new THREE.Group();
 const gizmoViewport = { x: 0, y: 0, width: 96, height: 96 };
+const thumbnailCanvas = document.createElement("canvas");
+const thumbnailRenderer = new THREE.WebGLRenderer({
+  canvas: thumbnailCanvas,
+  antialias: true,
+  alpha: true,
+  preserveDrawingBuffer: true,
+});
+thumbnailRenderer.setPixelRatio(1);
+thumbnailRenderer.outputColorSpace = THREE.SRGBColorSpace;
+const thumbnailQueue = [];
+let isProcessingThumbnailQueue = false;
 
 const gridHelper = new THREE.GridHelper(20, 20, 0x507dbc, 0x8aa1b1);
 gridHelper.position.y = -0.0001;
@@ -53,6 +66,8 @@ scene.add(axesHelper);
 
 let activeModelRoot = null;
 let activeAssetId = null;
+let currentModelFrameSize = 1;
+let savedCameraState = null;
 const publishedAssets = [];
 const sessionAssets = [];
 
@@ -220,6 +235,7 @@ function bindEvents() {
   window.addEventListener("resize", resizeRenderer);
   fileInput.addEventListener("change", onFileInputChange);
   resetViewButton.addEventListener("click", frameCurrentModel);
+  viewerResetButton.addEventListener("click", frameCurrentModel);
   closeHintButton.addEventListener("click", hideSceneHint);
   backToLibraryButton.addEventListener("click", switchToLibraryMode);
   nextModelButton.addEventListener("click", loadNextAsset);
@@ -237,6 +253,7 @@ function bindEvents() {
   wireframeToggle.addEventListener("change", () => {
     applyWireframeMode(wireframeToggle.checked);
   });
+  controls.addEventListener("change", updateSavedCameraState);
 
   dropZone.addEventListener("dragenter", onDragEnter);
   dropZone.addEventListener("dragover", onDragOver);
@@ -429,6 +446,24 @@ function renderAssetList(container, assets, emptyMessage) {
       loadAsset(asset, { switchMode: true });
     });
 
+    const preview = document.createElement("div");
+    preview.className = "asset-card-preview";
+
+    if (asset.thumbnailDataUrl) {
+      const image = document.createElement("img");
+      image.className = "asset-card-image";
+      image.src = asset.thumbnailDataUrl;
+      image.alt = `Прев'ю моделі ${asset.title}`;
+      preview.append(image);
+    } else {
+      const placeholder = document.createElement("div");
+      placeholder.className = "asset-card-placeholder";
+      placeholder.textContent =
+        asset.thumbnailStatus === "error" ? "No preview" : "Preview";
+      preview.append(placeholder);
+      enqueueThumbnail(asset);
+    }
+
     const title = document.createElement("span");
     title.className = "asset-card-title";
     title.textContent = asset.title;
@@ -437,7 +472,7 @@ function renderAssetList(container, assets, emptyMessage) {
     meta.className = "asset-card-meta";
     meta.textContent = `${asset.source === "published" ? "Сайт" : "Сесія"} • ${asset.description}`;
 
-    button.append(title, meta);
+    button.append(preview, title, meta);
     container.append(button);
   });
 }
@@ -462,11 +497,7 @@ async function loadAsset(asset, options = {}) {
   });
 
   try {
-    const arrayBuffer =
-      asset.source === "published"
-        ? await fetchAssetArrayBuffer(asset.filePath)
-        : await readFileAsArrayBuffer(asset.file);
-
+    const arrayBuffer = await resolveAssetArrayBuffer(asset);
     await parseModelBuffer(arrayBuffer, asset);
 
     if (switchMode) {
@@ -475,6 +506,131 @@ async function loadAsset(asset, options = {}) {
   } catch (error) {
     handleLoadError(asset, error);
   }
+}
+
+/**
+ * Ставить генерацію прев'ю в чергу, щоб не створювати надто багато рендерів одночасно.
+ */
+function enqueueThumbnail(asset) {
+  if (asset.thumbnailStatus === "queued" || asset.thumbnailStatus === "loading" || asset.thumbnailDataUrl) {
+    return;
+  }
+
+  asset.thumbnailStatus = "queued";
+  thumbnailQueue.push(asset);
+  processThumbnailQueue();
+}
+
+/**
+ * Послідовно генерує thumbnails для моделей у бібліотеці.
+ */
+async function processThumbnailQueue() {
+  if (isProcessingThumbnailQueue) {
+    return;
+  }
+
+  isProcessingThumbnailQueue = true;
+
+  while (thumbnailQueue.length) {
+    const asset = thumbnailQueue.shift();
+    asset.thumbnailStatus = "loading";
+
+    try {
+      const arrayBuffer = await resolveAssetArrayBuffer(asset);
+      asset.thumbnailDataUrl = await createAssetThumbnail(arrayBuffer);
+      asset.thumbnailStatus = "loaded";
+    } catch (error) {
+      console.error(error);
+      asset.thumbnailStatus = "error";
+    }
+
+    renderAssetLibraries();
+  }
+
+  isProcessingThumbnailQueue = false;
+}
+
+/**
+ * Створює data URL прев'ю моделі для картки бібліотеки.
+ */
+function createAssetThumbnail(arrayBuffer) {
+  return new Promise((resolve, reject) => {
+    thumbnailLoader.parse(
+      arrayBuffer.slice(0),
+      "",
+      (gltf) => {
+        const thumbnailScene = new THREE.Scene();
+        thumbnailScene.background = new THREE.Color(0xe8eef6);
+
+        const ambientLight = new THREE.HemisphereLight(0xffffff, 0x8aa1b1, 1.3);
+        thumbnailScene.add(ambientLight);
+
+        const keyLight = new THREE.DirectionalLight(0xffffff, 1.1);
+        keyLight.position.set(3, 4, 5);
+        thumbnailScene.add(keyLight);
+
+        const previewModel = gltf.scene;
+        prepareThumbnailModel(previewModel);
+        normalizeModelTransform(previewModel);
+        thumbnailScene.add(previewModel);
+
+        const previewCamera = new THREE.PerspectiveCamera(36, 1.6, 0.1, 100);
+        frameThumbnailCamera(previewCamera, previewModel);
+
+        thumbnailRenderer.setSize(256, 160, false);
+        thumbnailRenderer.clear();
+        thumbnailRenderer.render(thumbnailScene, previewCamera);
+
+        const imageDataUrl = thumbnailRenderer.domElement.toDataURL("image/png");
+        disposeThreeObject(previewModel);
+        resolve(imageDataUrl);
+      },
+      (error) => {
+        reject(error);
+      },
+    );
+  });
+}
+
+/**
+ * Підготовлює міні-модель до короткого статичного рендера у бібліотеці.
+ */
+function prepareThumbnailModel(modelRoot) {
+  modelRoot.traverse((node) => {
+    if (!node.isMesh) {
+      return;
+    }
+
+    if (Array.isArray(node.material)) {
+      node.material.forEach((material) => {
+        material.side = THREE.DoubleSide;
+      });
+      return;
+    }
+
+    node.material.side = THREE.DoubleSide;
+  });
+}
+
+/**
+ * Підбирає камеру так, щоб thumbnail заповнював картку і добре читався.
+ */
+function frameThumbnailCamera(previewCamera, modelRoot) {
+  const bounds = new THREE.Box3().setFromObject(modelRoot);
+  const size = bounds.getSize(new THREE.Vector3());
+  const center = bounds.getCenter(new THREE.Vector3());
+  const safeDimension = Math.max(size.x, size.y, size.z) || 1;
+  const distance = safeDimension * 1.8;
+
+  previewCamera.position.set(
+    center.x + distance,
+    center.y + distance * 0.8,
+    center.z + distance,
+  );
+  previewCamera.lookAt(center);
+  previewCamera.near = 0.01;
+  previewCamera.far = safeDimension * 20;
+  previewCamera.updateProjectionMatrix();
 }
 
 /**
@@ -531,6 +687,38 @@ function updateViewerActions() {
 }
 
 /**
+ * Запам'ятовує поточний ракурс камери відносно активної моделі.
+ */
+function updateSavedCameraState() {
+  if (!activeModelRoot) {
+    return;
+  }
+
+  const offset = new THREE.Vector3().subVectors(camera.position, controls.target);
+  const distance = offset.length();
+
+  if (!distance) {
+    return;
+  }
+
+  savedCameraState = {
+    direction: offset.normalize().clone(),
+    distanceFactor: distance / Math.max(currentModelFrameSize, 1),
+  };
+}
+
+/**
+ * Переносить збережений ракурс на нову модель, зберігаючи кут і масштаб огляду.
+ */
+function applySavedCameraState(modelCenter, modelSize) {
+  const distance = Math.max(modelSize, 1) * savedCameraState.distanceFactor;
+  const offset = savedCameraState.direction.clone().multiplyScalar(distance);
+
+  controls.target.copy(modelCenter);
+  camera.position.copy(modelCenter).add(offset);
+}
+
+/**
  * Читає локальний файл як ArrayBuffer для подальшого парсингу GLB.
  */
 function readFileAsArrayBuffer(file) {
@@ -568,6 +756,15 @@ async function fetchAssetArrayBuffer(filePath) {
 }
 
 /**
+ * Уніфікує отримання буфера моделі для viewer і для генерації прев'ю.
+ */
+async function resolveAssetArrayBuffer(asset) {
+  return asset.source === "published"
+    ? fetchAssetArrayBuffer(asset.filePath)
+    : readFileAsArrayBuffer(asset.file);
+}
+
+/**
  * Парсить буфер моделі та оновлює сцену й статистику після успішного імпорту.
  */
 function parseModelBuffer(arrayBuffer, asset) {
@@ -582,7 +779,7 @@ function parseModelBuffer(arrayBuffer, asset) {
         scene.add(activeModelRoot);
         applyMathStyleMode(mathModeToggle.checked);
         applyWireframeMode(wireframeToggle.checked);
-        frameCurrentModel();
+        frameCurrentModel({ preserveView: true });
 
         const stats = collectModelStats(activeModelRoot);
         updateStats({
@@ -643,7 +840,9 @@ function normalizeModelTransform(modelRoot) {
 /**
  * Підбирає позицію камери й масштаб сітки під поточну модель.
  */
-function frameCurrentModel() {
+function frameCurrentModel(options = {}) {
+  const { preserveView = false } = options;
+
   if (!activeModelRoot) {
     controls.target.set(0, 0, 0);
     camera.position.set(8, 6, 8);
@@ -656,21 +855,28 @@ function frameCurrentModel() {
   const center = bounds.getCenter(new THREE.Vector3());
   const maxDimension = Math.max(size.x, size.y, size.z);
   const safeDimension = maxDimension || 1;
+  currentModelFrameSize = safeDimension;
 
-  const distance = safeDimension * 1.8;
-  camera.position.set(
-    center.x + distance,
-    center.y + distance * 0.7,
-    center.z + distance,
-  );
+  if (preserveView && savedCameraState) {
+    applySavedCameraState(center, safeDimension);
+  } else {
+    const distance = safeDimension * 1.8;
+    camera.position.set(
+      center.x + distance,
+      center.y + distance * 0.7,
+      center.z + distance,
+    );
+    controls.target.copy(center);
+  }
+
   camera.near = Math.max(safeDimension / 100, 0.01);
   camera.far = safeDimension * 100;
   camera.updateProjectionMatrix();
 
-  controls.target.copy(center);
   controls.maxDistance = safeDimension * 20;
   controls.update();
   updateGridScale(safeDimension, center);
+  updateSavedCameraState();
 }
 
 /**
@@ -1007,6 +1213,22 @@ function disposeActiveModel() {
   });
 
   activeModelRoot = null;
+}
+
+/**
+ * Звільняє геометрії та матеріали тимчасового дерева об'єктів.
+ */
+function disposeThreeObject(root) {
+  root.traverse((node) => {
+    node.geometry?.dispose?.();
+
+    const materials = Array.isArray(node.material) ? node.material : [node.material];
+    materials.forEach((material) => {
+      if (material) {
+        disposeMaterial(material);
+      }
+    });
+  });
 }
 
 /**
