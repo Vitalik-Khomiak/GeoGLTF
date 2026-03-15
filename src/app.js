@@ -5,6 +5,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 const canvas = document.querySelector("#sceneCanvas");
 const fileInput = document.querySelector("#modelInput");
 const resetViewButton = document.querySelector("#resetViewButton");
+const mathModeToggle = document.querySelector("#mathModeToggle");
 const gridToggle = document.querySelector("#gridToggle");
 const axesToggle = document.querySelector("#axesToggle");
 const wireframeToggle = document.querySelector("#wireframeToggle");
@@ -21,6 +22,15 @@ const controls = createControls(camera, renderer.domElement);
 const loader = new GLTFLoader();
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
+const mathStyle = {
+  faceColor: new THREE.Color(0xc58f66),
+  faceOpacity: 0.68,
+  visibleEdgeColor: 0x964b00,
+  hiddenEdgeColor: 0x964b00,
+  hiddenOpacity: 0.65,
+  dashSize: 0.18,
+  gapSize: 0.12,
+};
 
 const gridHelper = new THREE.GridHelper(20, 20, 0x507dbc, 0x8aa1b1);
 gridHelper.position.y = -0.0001;
@@ -112,6 +122,11 @@ function bindEvents() {
   window.addEventListener("resize", resizeRenderer);
   fileInput.addEventListener("change", onFileInputChange);
   resetViewButton.addEventListener("click", frameCurrentModel);
+  mathModeToggle.addEventListener("change", () => {
+    syncRenderModeControls();
+    applyMathStyleMode(mathModeToggle.checked);
+    applyWireframeMode(wireframeToggle.checked);
+  });
   gridToggle.addEventListener("change", () => {
     gridHelper.visible = gridToggle.checked;
   });
@@ -134,6 +149,7 @@ function bindEvents() {
   });
 
   renderer.domElement.addEventListener("pointermove", onPointerMove);
+  syncRenderModeControls();
 }
 
 /**
@@ -404,7 +420,9 @@ function parseModelBuffer(arrayBuffer, asset) {
       (gltf) => {
         activeModelRoot = gltf.scene;
         prepareModel(activeModelRoot);
+        normalizeModelTransform(activeModelRoot);
         scene.add(activeModelRoot);
+        applyMathStyleMode(mathModeToggle.checked);
         applyWireframeMode(wireframeToggle.checked);
         frameCurrentModel();
 
@@ -437,6 +455,7 @@ function prepareModel(modelRoot) {
 
     node.castShadow = true;
     node.receiveShadow = true;
+    node.userData.originalMaterial = node.material;
 
     if (Array.isArray(node.material)) {
       node.material.forEach((material) => {
@@ -447,6 +466,20 @@ function prepareModel(modelRoot) {
 
     node.material.side = THREE.DoubleSide;
   });
+}
+
+/**
+ * Центрує модель по X/Z і ставить її на площину Y=0 для стабільної навчальної сцени.
+ */
+function normalizeModelTransform(modelRoot) {
+  modelRoot.updateMatrixWorld(true);
+
+  const bounds = new THREE.Box3().setFromObject(modelRoot);
+  const center = bounds.getCenter(new THREE.Vector3());
+  const offset = new THREE.Vector3(-center.x, -bounds.min.y, -center.z);
+
+  modelRoot.position.add(offset);
+  modelRoot.updateMatrixWorld(true);
 }
 
 /**
@@ -496,9 +529,9 @@ function updateGridScale(modelSize, modelCenter) {
     0x507dbc,
     0x8aa1b1,
   ).geometry;
-  gridHelper.position.set(modelCenter.x, modelCenter.y - modelSize / 2, modelCenter.z);
+  gridHelper.position.set(0, -0.0001, 0);
 
-  axesHelper.position.set(modelCenter.x, modelCenter.y - modelSize / 2, modelCenter.z);
+  axesHelper.position.set(0, 0, 0);
   axesHelper.scale.setScalar(Math.max(1.5, modelSize * 0.35));
 }
 
@@ -515,6 +548,10 @@ function applyWireframeMode(isWireframe) {
       return;
     }
 
+    if (mathModeToggle.checked) {
+      return;
+    }
+
     if (Array.isArray(node.material)) {
       node.material.forEach((material) => {
         material.wireframe = isWireframe;
@@ -524,6 +561,153 @@ function applyWireframeMode(isWireframe) {
 
     node.material.wireframe = isWireframe;
   });
+}
+
+/**
+ * Вмикає навчальний стиль подачі: заливка спереду та штрихові приховані ребра позаду.
+ */
+function applyMathStyleMode(isEnabled) {
+  if (!activeModelRoot) {
+    return;
+  }
+
+  activeModelRoot.traverse((node) => {
+    if (!node.isMesh) {
+      return;
+    }
+
+    if (isEnabled) {
+      enableMathStyle(node);
+      return;
+    }
+
+    disableMathStyle(node);
+  });
+}
+
+/**
+ * Синхронізує математичний режим і wireframe, щоб режими не конфліктували між собою.
+ */
+function syncRenderModeControls() {
+  const hadWireframe = wireframeToggle.checked;
+  wireframeToggle.disabled = mathModeToggle.checked;
+
+  if (mathModeToggle.checked && wireframeToggle.checked) {
+    wireframeToggle.checked = false;
+  }
+
+  if (mathModeToggle.checked && hadWireframe && activeModelRoot) {
+    activeModelRoot.traverse((node) => {
+      if (!node.isMesh) {
+        return;
+      }
+
+      const originalMaterial = node.userData.originalMaterial;
+      const materials = Array.isArray(originalMaterial)
+        ? originalMaterial
+        : [originalMaterial];
+
+      materials.forEach((material) => {
+        if (material) {
+          material.wireframe = false;
+        }
+      });
+    });
+  }
+}
+
+/**
+ * Замінює стандартний матеріал на навчальну заливку й додає ребра.
+ */
+function enableMathStyle(mesh) {
+  const originalMaterial = mesh.userData.originalMaterial ?? mesh.material;
+
+  if (!mesh.userData.mathMaterial) {
+    mesh.userData.mathMaterial = createMathFaceMaterial(originalMaterial);
+  }
+
+  mesh.material = mesh.userData.mathMaterial;
+  mesh.renderOrder = 1;
+  ensureMathEdgeHelpers(mesh);
+}
+
+/**
+ * Повертає оригінальні матеріали та прибирає допоміжні ребра математичного режиму.
+ */
+function disableMathStyle(mesh) {
+  if (mesh.userData.originalMaterial) {
+    mesh.material = mesh.userData.originalMaterial;
+  }
+
+  mesh.renderOrder = 0;
+
+  if (mesh.userData.mathEdgeGroup) {
+    mesh.userData.mathEdgeGroup.visible = false;
+  }
+}
+
+/**
+ * Створює пласку напівпрозору заливку для стилю, наближеного до підручників і GeoGebra.
+ */
+function createMathFaceMaterial(sourceMaterial) {
+  const baseColor = Array.isArray(sourceMaterial)
+    ? sourceMaterial[0]?.color
+    : sourceMaterial?.color;
+
+  return new THREE.MeshPhongMaterial({
+    color: baseColor?.clone?.() ?? mathStyle.faceColor.clone(),
+    transparent: true,
+    opacity: mathStyle.faceOpacity,
+    shininess: 10,
+    side: THREE.DoubleSide,
+    polygonOffset: true,
+    polygonOffsetFactor: 1,
+    polygonOffsetUnits: 1,
+  });
+}
+
+/**
+ * Додає два шари ребер: видимі суцільні та приховані штрихові.
+ */
+function ensureMathEdgeHelpers(mesh) {
+  if (mesh.userData.mathEdgeGroup) {
+    mesh.userData.mathEdgeGroup.visible = true;
+    return;
+  }
+
+  const edgeGeometry = new THREE.EdgesGeometry(mesh.geometry, 1);
+  const visibleEdges = new THREE.LineSegments(
+    edgeGeometry,
+    new THREE.LineBasicMaterial({
+      color: mathStyle.visibleEdgeColor,
+      transparent: true,
+      opacity: 0.98,
+      depthWrite: false,
+    }),
+  );
+  visibleEdges.renderOrder = 3;
+
+  const hiddenEdges = new THREE.LineSegments(
+    edgeGeometry,
+    new THREE.LineDashedMaterial({
+      color: mathStyle.hiddenEdgeColor,
+      transparent: true,
+      opacity: mathStyle.hiddenOpacity,
+      dashSize: mathStyle.dashSize,
+      gapSize: mathStyle.gapSize,
+      depthWrite: false,
+    }),
+  );
+  hiddenEdges.computeLineDistances();
+  hiddenEdges.material.depthFunc = THREE.GreaterDepth;
+  hiddenEdges.renderOrder = 2;
+
+  const edgeGroup = new THREE.Group();
+  edgeGroup.name = "mathEdgeGroup";
+  edgeGroup.add(hiddenEdges, visibleEdges);
+
+  mesh.add(edgeGroup);
+  mesh.userData.mathEdgeGroup = edgeGroup;
 }
 
 /**
@@ -605,19 +789,41 @@ function disposeActiveModel() {
   }
 
   scene.remove(activeModelRoot);
+  const disposedGeometries = new Set();
+  const disposedMaterials = new Set();
+
   activeModelRoot.traverse((node) => {
-    if (!node.isMesh) {
-      return;
+    if (node.geometry && !disposedGeometries.has(node.geometry)) {
+      disposedGeometries.add(node.geometry);
+      node.geometry.dispose();
     }
 
-    node.geometry?.dispose();
+    const candidateMaterials = [];
 
-    if (Array.isArray(node.material)) {
-      node.material.forEach(disposeMaterial);
-      return;
+    if (node.material) {
+      candidateMaterials.push(...(Array.isArray(node.material) ? node.material : [node.material]));
     }
 
-    disposeMaterial(node.material);
+    if (node.userData.originalMaterial) {
+      candidateMaterials.push(
+        ...(Array.isArray(node.userData.originalMaterial)
+          ? node.userData.originalMaterial
+          : [node.userData.originalMaterial]),
+      );
+    }
+
+    if (node.userData.mathMaterial) {
+      candidateMaterials.push(node.userData.mathMaterial);
+    }
+
+    candidateMaterials.forEach((material) => {
+      if (!material || disposedMaterials.has(material)) {
+        return;
+      }
+
+      disposedMaterials.add(material);
+      disposeMaterial(material);
+    });
   });
 
   activeModelRoot = null;
