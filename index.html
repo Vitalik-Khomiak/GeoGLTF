@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="uk">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GeoGLTF Viewer</title>
+    <meta
+      name="description"
+      content="Інтерактивний навчальний переглядач 3D-моделей GLB з координатною сіткою та осями."
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="control-panel">
+        <div class="brand-block">
+          <p class="eyebrow">GeoGLTF Viewer</p>
+          <h1>3D-переглядач для уроків математики</h1>
+          <p class="panel-text">
+            Завантажуйте локальні <code>.glb</code> моделі, аналізуйте їх у
+            системі координат і обертайте сцену навігацією, близькою до SculptGL.
+          </p>
+        </div>
+
+        <div class="panel-section">
+          <label class="upload-button" for="modelInput">Додати .glb файли</label>
+          <input
+            id="modelInput"
+            type="file"
+            accept=".glb,model/gltf-binary"
+            multiple
+          />
+          <button id="resetViewButton" class="secondary-button" type="button">
+            Скинути камеру
+          </button>
+        </div>
+
+        <div class="panel-section">
+          <p class="section-title">Бібліотека моделей</p>
+          <p class="panel-text compact-text">
+            Опубліковані моделі доступні всім учням на сайті. Локальні моделі
+            живуть лише в поточній сесії браузера.
+          </p>
+
+          <div class="library-block">
+            <p class="library-title">Опублікована колекція</p>
+            <div id="publishedLibrary" class="asset-list"></div>
+          </div>
+
+          <div class="library-block">
+            <p class="library-title">Локальна колекція</p>
+            <div id="sessionLibrary" class="asset-list"></div>
+          </div>
+        </div>
+
+        <div class="panel-section">
+          <p class="section-title">Параметри сцени</p>
+          <label class="toggle">
+            <input id="gridToggle" type="checkbox" checked />
+            <span>Показати сітку</span>
+          </label>
+          <label class="toggle">
+            <input id="axesToggle" type="checkbox" checked />
+            <span>Показати осі X/Y/Z</span>
+          </label>
+          <label class="toggle">
+            <input id="wireframeToggle" type="checkbox" />
+            <span>Wireframe режим</span>
+          </label>
+        </div>
+
+        <div class="panel-section">
+          <p class="section-title">Навігація</p>
+          <ul class="hint-list">
+            <li>Ліва кнопка: обертання</li>
+            <li>Права кнопка: панорамування</li>
+            <li>Коліщатко: масштабування</li>
+            <li><kbd>R</kbd>: скидання камери</li>
+          </ul>
+        </div>
+
+        <div class="panel-section">
+          <p class="section-title">Інформація про модель</p>
+          <dl id="modelStats" class="stats-list">
+            <div>
+              <dt>Статус</dt>
+              <dd>Файл ще не завантажено</dd>
+            </div>
+            <div>
+              <dt>Назва</dt>
+              <dd>-</dd>
+            </div>
+            <div>
+              <dt>Розмір</dt>
+              <dd>-</dd>
+            </div>
+            <div>
+              <dt>Вершини</dt>
+              <dd>-</dd>
+            </div>
+            <div>
+              <dt>Полігони</dt>
+              <dd>-</dd>
+            </div>
+          </dl>
+        </div>
+      </aside>
+
+      <main class="viewer-panel">
+        <div class="viewer-toolbar">
+          <p id="statusText">Готово до завантаження моделі</p>
+          <p class="toolbar-note">
+            Перетягніть один або кілька <code>.glb</code> файлів на сцену або
+            відкрийте їх кнопкою.
+          </p>
+        </div>
+        <div id="dropZone" class="viewer-canvas-wrapper">
+          <canvas id="sceneCanvas"></canvas>
+          <div class="canvas-overlay">
+            <div class="overlay-card">
+              <p class="overlay-title">Навчальний режим 3D-аналізу</p>
+              <p>
+                Сцена автоматично центрує модель, додає координатну сітку та осі
+                для просторового аналізу.
+              </p>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module" src="./src/app.js"></script>
+  </body>
+</html>

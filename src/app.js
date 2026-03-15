@@ -1,0 +1,700 @@
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+
+const canvas = document.querySelector("#sceneCanvas");
+const fileInput = document.querySelector("#modelInput");
+const resetViewButton = document.querySelector("#resetViewButton");
+const gridToggle = document.querySelector("#gridToggle");
+const axesToggle = document.querySelector("#axesToggle");
+const wireframeToggle = document.querySelector("#wireframeToggle");
+const statusText = document.querySelector("#statusText");
+const dropZone = document.querySelector("#dropZone");
+const modelStats = document.querySelector("#modelStats");
+const publishedLibrary = document.querySelector("#publishedLibrary");
+const sessionLibrary = document.querySelector("#sessionLibrary");
+
+const scene = new THREE.Scene();
+const renderer = createRenderer(canvas);
+const camera = createCamera();
+const controls = createControls(camera, renderer.domElement);
+const loader = new GLTFLoader();
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+
+const gridHelper = new THREE.GridHelper(20, 20, 0x507dbc, 0x8aa1b1);
+gridHelper.position.y = -0.0001;
+scene.add(gridHelper);
+
+const axesHelper = new THREE.AxesHelper(8);
+scene.add(axesHelper);
+
+let activeModelRoot = null;
+let activeAssetId = null;
+const publishedAssets = [];
+const sessionAssets = [];
+
+initializeScene();
+bindEvents();
+renderAssetLibraries();
+loadPublishedLibrary();
+animate();
+setStatus("Готово до завантаження моделі");
+
+/**
+ * Створює WebGL-рендерер з адаптацією під щільність екрана.
+ */
+function createRenderer(targetCanvas) {
+  const nextRenderer = new THREE.WebGLRenderer({
+    canvas: targetCanvas,
+    antialias: true,
+    alpha: true,
+  });
+
+  nextRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  nextRenderer.outputColorSpace = THREE.SRGBColorSpace;
+  return nextRenderer;
+}
+
+/**
+ * Створює перспективну камеру для огляду об'єкта в просторі.
+ */
+function createCamera() {
+  const nextCamera = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
+  nextCamera.position.set(8, 6, 8);
+  return nextCamera;
+}
+
+/**
+ * Налаштовує OrbitControls так, щоб взаємодія була близькою до SculptGL.
+ */
+function createControls(targetCamera, domElement) {
+  const nextControls = new OrbitControls(targetCamera, domElement);
+  nextControls.enableDamping = true;
+  nextControls.dampingFactor = 0.08;
+  nextControls.rotateSpeed = 0.9;
+  nextControls.zoomSpeed = 1.1;
+  nextControls.panSpeed = 0.85;
+  nextControls.screenSpacePanning = true;
+  nextControls.mouseButtons = {
+    LEFT: THREE.MOUSE.ROTATE,
+    MIDDLE: THREE.MOUSE.DOLLY,
+    RIGHT: THREE.MOUSE.PAN,
+  };
+  nextControls.target.set(0, 0, 0);
+  return nextControls;
+}
+
+/**
+ * Додає базове освітлення, фон та стартове підлаштування розміру сцени.
+ */
+function initializeScene() {
+  scene.background = new THREE.Color(0xf3f7fb);
+
+  const ambientLight = new THREE.HemisphereLight(0xffffff, 0x4a6073, 1.25);
+  scene.add(ambientLight);
+
+  const keyLight = new THREE.DirectionalLight(0xffffff, 1.15);
+  keyLight.position.set(8, 14, 10);
+  scene.add(keyLight);
+
+  const rimLight = new THREE.DirectionalLight(0xbcd7ff, 0.65);
+  rimLight.position.set(-8, 6, -10);
+  scene.add(rimLight);
+
+  resizeRenderer();
+}
+
+/**
+ * Підписує UI-елементи, drag-and-drop і клавіатуру на дії переглядача.
+ */
+function bindEvents() {
+  window.addEventListener("resize", resizeRenderer);
+  fileInput.addEventListener("change", onFileInputChange);
+  resetViewButton.addEventListener("click", frameCurrentModel);
+  gridToggle.addEventListener("change", () => {
+    gridHelper.visible = gridToggle.checked;
+  });
+  axesToggle.addEventListener("change", () => {
+    axesHelper.visible = axesToggle.checked;
+  });
+  wireframeToggle.addEventListener("change", () => {
+    applyWireframeMode(wireframeToggle.checked);
+  });
+
+  dropZone.addEventListener("dragenter", onDragEnter);
+  dropZone.addEventListener("dragover", onDragOver);
+  dropZone.addEventListener("dragleave", onDragLeave);
+  dropZone.addEventListener("drop", onDrop);
+
+  window.addEventListener("keydown", (event) => {
+    if (event.key.toLowerCase() === "r") {
+      frameCurrentModel();
+    }
+  });
+
+  renderer.domElement.addEventListener("pointermove", onPointerMove);
+}
+
+/**
+ * Підвантажує модель із локального input-елемента.
+ */
+function onFileInputChange(event) {
+  const files = [...(event.target.files ?? [])];
+  event.target.value = "";
+
+  if (!files.length) {
+    return;
+  }
+  registerSessionFiles(files);
+}
+
+/**
+ * Підсвічує область дропа, коли користувач переносить файл на сцену.
+ */
+function onDragEnter(event) {
+  event.preventDefault();
+  dropZone.classList.add("drag-active");
+}
+
+/**
+ * Дозволяє browser drop подію для файлів у canvas-зоні.
+ */
+function onDragOver(event) {
+  event.preventDefault();
+  dropZone.classList.add("drag-active");
+}
+
+/**
+ * Прибирає стилі drag-and-drop, коли користувач виходить із зони.
+ */
+function onDragLeave(event) {
+  event.preventDefault();
+
+  if (event.target === dropZone) {
+    dropZone.classList.remove("drag-active");
+  }
+}
+
+/**
+ * Обробляє drop локального .glb файлу просто на сцену.
+ */
+function onDrop(event) {
+  event.preventDefault();
+  dropZone.classList.remove("drag-active");
+
+  const files = [...(event.dataTransfer?.files ?? [])];
+  if (!files.length) {
+    return;
+  }
+  registerSessionFiles(files);
+}
+
+/**
+ * Реєструє локальні файли в сесійній бібліотеці та одразу відкриває першу модель.
+ */
+function registerSessionFiles(files) {
+  const validFiles = files.filter((file) => isGlbFile(file.name));
+
+  if (!validFiles.length) {
+    setStatus("Підтримуються лише файли .glb");
+    return;
+  }
+
+  const newlyAddedAssets = [];
+
+  validFiles.forEach((file) => {
+    const fileKey = createSessionFileKey(file);
+    const existingAsset = sessionAssets.find((asset) => asset.fileKey === fileKey);
+
+    if (existingAsset) {
+      newlyAddedAssets.push(existingAsset);
+      return;
+    }
+
+    const asset = {
+      id: `session-${sessionAssets.length + 1}-${Date.now()}`,
+      source: "session",
+      title: file.name,
+      description: "Локальний файл з поточної сесії",
+      sizeLabel: formatFileSize(file.size),
+      file,
+      fileKey,
+    };
+
+    sessionAssets.push(asset);
+    newlyAddedAssets.push(asset);
+  });
+
+  renderAssetLibraries();
+
+  if (newlyAddedAssets.length) {
+    loadAsset(newlyAddedAssets[0]);
+  }
+}
+
+/**
+ * Завантажує каталог опублікованих моделей, доступних для всіх користувачів сайту.
+ */
+async function loadPublishedLibrary() {
+  try {
+    const response = await fetch("./assets/library.json", { cache: "no-store" });
+
+    if (!response.ok) {
+      throw new Error(`Не вдалося прочитати каталог моделей (${response.status}).`);
+    }
+
+    const payload = await response.json();
+    const assets = Array.isArray(payload.assets) ? payload.assets : [];
+
+    publishedAssets.splice(
+      0,
+      publishedAssets.length,
+      ...assets
+        .map((entry, index) => normalizePublishedAsset(entry, index))
+        .filter(Boolean),
+    );
+    renderAssetLibraries();
+
+    if (!activeAssetId && publishedAssets.length) {
+      loadAsset(publishedAssets[0]);
+    }
+  } catch (error) {
+    console.error(error);
+    publishedAssets.length = 0;
+    renderAssetLibraries();
+  }
+}
+
+/**
+ * Уніфікує структуру запису з JSON-каталогу перед показом у UI.
+ */
+function normalizePublishedAsset(entry, index) {
+  if (!entry || typeof entry.file !== "string" || !isGlbFile(entry.file)) {
+    return null;
+  }
+
+  return {
+    id: `published-${index + 1}`,
+    source: "published",
+    title: entry.title?.trim() || `Модель ${index + 1}`,
+    description: entry.description?.trim() || "Опублікована модель для спільного доступу",
+    filePath: entry.file,
+    sizeLabel: typeof entry.sizeLabel === "string" ? entry.sizeLabel : null,
+  };
+}
+
+/**
+ * Перемальовує обидва списки моделей і виділяє поточну активну.
+ */
+function renderAssetLibraries() {
+  renderAssetList(publishedLibrary, publishedAssets, "Опублікованих моделей поки немає.");
+  renderAssetList(sessionLibrary, sessionAssets, "Локальних моделей поки не додано.");
+}
+
+/**
+ * Рендерить один список асетів як набір карток-кнопок.
+ */
+function renderAssetList(container, assets, emptyMessage) {
+  container.replaceChildren();
+
+  if (!assets.length) {
+    const emptyState = document.createElement("div");
+    emptyState.className = "asset-card-empty";
+    emptyState.textContent = emptyMessage;
+    container.append(emptyState);
+    return;
+  }
+
+  assets.forEach((asset) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `asset-card${asset.id === activeAssetId ? " active" : ""}`;
+    button.addEventListener("click", () => {
+      loadAsset(asset);
+    });
+
+    const title = document.createElement("span");
+    title.className = "asset-card-title";
+    title.textContent = asset.title;
+
+    const meta = document.createElement("span");
+    meta.className = "asset-card-meta";
+    meta.textContent = `${asset.source === "published" ? "Сайт" : "Сесія"} • ${asset.description}`;
+
+    button.append(title, meta);
+    container.append(button);
+  });
+}
+
+/**
+ * Завантажує модель із вибраного джерела: локального файлу або JSON-каталогу.
+ */
+async function loadAsset(asset) {
+  activeAssetId = asset.id;
+  renderAssetLibraries();
+  disposeActiveModel();
+
+  setStatus(`Завантаження моделі: ${asset.title}`);
+  updateStats({
+    status: "Завантаження...",
+    name: asset.title,
+    size: asset.sizeLabel ?? "-",
+    vertices: "-",
+    polygons: "-",
+  });
+
+  try {
+    const arrayBuffer =
+      asset.source === "published"
+        ? await fetchAssetArrayBuffer(asset.filePath)
+        : await readFileAsArrayBuffer(asset.file);
+
+    await parseModelBuffer(arrayBuffer, asset);
+  } catch (error) {
+    handleLoadError(asset, error);
+  }
+}
+
+/**
+ * Читає локальний файл як ArrayBuffer для подальшого парсингу GLB.
+ */
+function readFileAsArrayBuffer(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      if (reader.result instanceof ArrayBuffer) {
+        resolve(reader.result);
+        return;
+      }
+
+      reject(new Error("Файл не вдалося прочитати як ArrayBuffer."));
+    };
+
+    reader.onerror = () => {
+      reject(reader.error ?? new Error("Помилка читання локального файлу."));
+    };
+
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+/**
+ * Отримує ArrayBuffer опублікованої моделі з папки проєкту.
+ */
+async function fetchAssetArrayBuffer(filePath) {
+  const response = await fetch(filePath);
+
+  if (!response.ok) {
+    throw new Error(`Не вдалося завантажити файл моделі (${response.status}).`);
+  }
+
+  return response.arrayBuffer();
+}
+
+/**
+ * Парсить буфер моделі та оновлює сцену й статистику після успішного імпорту.
+ */
+function parseModelBuffer(arrayBuffer, asset) {
+  return new Promise((resolve, reject) => {
+    loader.parse(
+      arrayBuffer,
+      "",
+      (gltf) => {
+        activeModelRoot = gltf.scene;
+        prepareModel(activeModelRoot);
+        scene.add(activeModelRoot);
+        applyWireframeMode(wireframeToggle.checked);
+        frameCurrentModel();
+
+        const stats = collectModelStats(activeModelRoot);
+        updateStats({
+          status: "Модель успішно завантажена",
+          name: asset.title,
+          size: asset.sizeLabel ?? formatFileSize(arrayBuffer.byteLength),
+          vertices: stats.vertices.toLocaleString("uk-UA"),
+          polygons: stats.triangles.toLocaleString("uk-UA"),
+        });
+        setStatus(`Модель ${asset.title} готова до аналізу`);
+        resolve();
+      },
+      (error) => {
+        reject(error);
+      },
+    );
+  });
+}
+
+/**
+ * Готує матеріали та тіні моделі, щоб вона коректно читалась у сцені.
+ */
+function prepareModel(modelRoot) {
+  modelRoot.traverse((node) => {
+    if (!node.isMesh) {
+      return;
+    }
+
+    node.castShadow = true;
+    node.receiveShadow = true;
+
+    if (Array.isArray(node.material)) {
+      node.material.forEach((material) => {
+        material.side = THREE.DoubleSide;
+      });
+      return;
+    }
+
+    node.material.side = THREE.DoubleSide;
+  });
+}
+
+/**
+ * Підбирає позицію камери й масштаб сітки під поточну модель.
+ */
+function frameCurrentModel() {
+  if (!activeModelRoot) {
+    controls.target.set(0, 0, 0);
+    camera.position.set(8, 6, 8);
+    controls.update();
+    return;
+  }
+
+  const bounds = new THREE.Box3().setFromObject(activeModelRoot);
+  const size = bounds.getSize(new THREE.Vector3());
+  const center = bounds.getCenter(new THREE.Vector3());
+  const maxDimension = Math.max(size.x, size.y, size.z);
+  const safeDimension = maxDimension || 1;
+
+  const distance = safeDimension * 1.8;
+  camera.position.set(
+    center.x + distance,
+    center.y + distance * 0.7,
+    center.z + distance,
+  );
+  camera.near = Math.max(safeDimension / 100, 0.01);
+  camera.far = safeDimension * 100;
+  camera.updateProjectionMatrix();
+
+  controls.target.copy(center);
+  controls.maxDistance = safeDimension * 20;
+  controls.update();
+  updateGridScale(safeDimension, center);
+}
+
+/**
+ * Масштабує координатну сітку так, щоб вона не губилась поруч із моделлю.
+ */
+function updateGridScale(modelSize, modelCenter) {
+  const gridSize = Math.max(10, Math.ceil(modelSize * 2));
+  const divisions = Math.max(10, Math.ceil(gridSize));
+
+  gridHelper.geometry.dispose();
+  gridHelper.geometry = new THREE.GridHelper(
+    gridSize,
+    divisions,
+    0x507dbc,
+    0x8aa1b1,
+  ).geometry;
+  gridHelper.position.set(modelCenter.x, modelCenter.y - modelSize / 2, modelCenter.z);
+
+  axesHelper.position.set(modelCenter.x, modelCenter.y - modelSize / 2, modelCenter.z);
+  axesHelper.scale.setScalar(Math.max(1.5, modelSize * 0.35));
+}
+
+/**
+ * Вмикає або вимикає каркасний режим для всіх мешів моделі.
+ */
+function applyWireframeMode(isWireframe) {
+  if (!activeModelRoot) {
+    return;
+  }
+
+  activeModelRoot.traverse((node) => {
+    if (!node.isMesh) {
+      return;
+    }
+
+    if (Array.isArray(node.material)) {
+      node.material.forEach((material) => {
+        material.wireframe = isWireframe;
+      });
+      return;
+    }
+
+    node.material.wireframe = isWireframe;
+  });
+}
+
+/**
+ * Підраховує базову геометричну статистику моделі для навчального UI.
+ */
+function collectModelStats(modelRoot) {
+  let vertices = 0;
+  let triangles = 0;
+
+  modelRoot.traverse((node) => {
+    if (!node.isMesh || !node.geometry) {
+      return;
+    }
+
+    const positionAttribute = node.geometry.getAttribute("position");
+    vertices += positionAttribute ? positionAttribute.count : 0;
+
+    if (node.geometry.index) {
+      triangles += node.geometry.index.count / 3;
+    } else if (positionAttribute) {
+      triangles += positionAttribute.count / 3;
+    }
+  });
+
+  return { vertices, triangles };
+}
+
+/**
+ * Оновлює блок статистики без зайвого дублювання DOM-коду.
+ */
+function updateStats({ status, name, size, vertices, polygons }) {
+  const values = [status, name, size, vertices, polygons];
+  modelStats.querySelectorAll("dd").forEach((element, index) => {
+    element.textContent = values[index];
+  });
+}
+
+/**
+ * Показує короткий стан програми у верхній панелі.
+ */
+function setStatus(message) {
+  statusText.textContent = message;
+}
+
+/**
+ * Форматує розмір файлу в зручний для інтерфейсу вигляд.
+ */
+function formatFileSize(byteCount) {
+  if (!Number.isFinite(byteCount) || byteCount <= 0) {
+    return "0 KB";
+  }
+
+  const units = ["B", "KB", "MB", "GB"];
+  const unitIndex = Math.min(Math.floor(Math.log(byteCount) / Math.log(1024)), units.length - 1);
+  const value = byteCount / 1024 ** unitIndex;
+  return `${value.toFixed(unitIndex === 0 ? 0 : 2)} ${units[unitIndex]}`;
+}
+
+/**
+ * Перевіряє, чи є файл або шлях GLB-моделлю.
+ */
+function isGlbFile(fileName) {
+  return typeof fileName === "string" && fileName.toLowerCase().endsWith(".glb");
+}
+
+/**
+ * Формує стабільний ключ локального файлу, щоб не дублювати його в сесійній бібліотеці.
+ */
+function createSessionFileKey(file) {
+  return [file.name, file.size, file.lastModified].join("__");
+}
+
+/**
+ * Коректно звільняє ресурси попередньої моделі, щоб не накопичувати пам'ять.
+ */
+function disposeActiveModel() {
+  if (!activeModelRoot) {
+    return;
+  }
+
+  scene.remove(activeModelRoot);
+  activeModelRoot.traverse((node) => {
+    if (!node.isMesh) {
+      return;
+    }
+
+    node.geometry?.dispose();
+
+    if (Array.isArray(node.material)) {
+      node.material.forEach(disposeMaterial);
+      return;
+    }
+
+    disposeMaterial(node.material);
+  });
+
+  activeModelRoot = null;
+}
+
+/**
+ * Звільняє текстури та матеріали конкретного меша.
+ */
+function disposeMaterial(material) {
+  if (!material) {
+    return;
+  }
+
+  Object.values(material).forEach((value) => {
+    if (value && typeof value === "object" && "isTexture" in value) {
+      value.dispose();
+    }
+  });
+  material.dispose();
+}
+
+/**
+ * Підлаштовує renderer та камеру під реальні розміри контейнера.
+ */
+function resizeRenderer() {
+  const wrapper = dropZone;
+  const width = wrapper.clientWidth;
+  const height = wrapper.clientHeight;
+
+  if (!width || !height) {
+    return;
+  }
+
+  renderer.setSize(width, height);
+  camera.aspect = width / height;
+  camera.updateProjectionMatrix();
+}
+
+/**
+ * Єдина точка обробки помилки імпорту, щоб користувач бачив причину в UI.
+ */
+function handleLoadError(file, error) {
+  console.error(error);
+
+  const rawMessage =
+    error instanceof Error ? error.message : "Невідома помилка під час імпорту.";
+  const safeMessage = rawMessage || "Невідома помилка під час імпорту.";
+  const assetName = file.title ?? file.name ?? "Невідома модель";
+  const assetSize =
+    file.sizeLabel ??
+    (typeof file.size === "number" ? formatFileSize(file.size) : "-");
+
+  setStatus(`Не вдалося завантажити модель: ${safeMessage}`);
+  updateStats({
+    status: "Помилка завантаження",
+    name: assetName,
+    size: assetSize,
+    vertices: "-",
+    polygons: "-",
+  });
+}
+
+/**
+ * Готує координати вказівника; за потреби тут легко додати інструмент вимірювань.
+ */
+function onPointerMove(event) {
+  const bounds = renderer.domElement.getBoundingClientRect();
+  pointer.x = ((event.clientX - bounds.left) / bounds.width) * 2 - 1;
+  pointer.y = -((event.clientY - bounds.top) / bounds.height) * 2 + 1;
+  raycaster.setFromCamera(pointer, camera);
+}
+
+/**
+ * Постійно оновлює контролер і рендерить сцену.
+ */
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
