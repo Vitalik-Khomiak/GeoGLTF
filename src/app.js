@@ -14,6 +14,8 @@ const dropZone = document.querySelector("#dropZone");
 const modelStats = document.querySelector("#modelStats");
 const publishedLibrary = document.querySelector("#publishedLibrary");
 const sessionLibrary = document.querySelector("#sessionLibrary");
+const sceneHint = document.querySelector("#sceneHint");
+const closeHintButton = document.querySelector("#closeHintButton");
 
 const scene = new THREE.Scene();
 const renderer = createRenderer(canvas);
@@ -31,6 +33,7 @@ const mathStyle = {
   dashSize: 0.18,
   gapSize: 0.12,
 };
+const HINT_STORAGE_KEY = "geogltf-scene-hint-hidden";
 
 const gridHelper = new THREE.GridHelper(20, 20, 0x507dbc, 0x8aa1b1);
 gridHelper.position.y = -0.0001;
@@ -122,6 +125,7 @@ function bindEvents() {
   window.addEventListener("resize", resizeRenderer);
   fileInput.addEventListener("change", onFileInputChange);
   resetViewButton.addEventListener("click", frameCurrentModel);
+  closeHintButton.addEventListener("click", hideSceneHint);
   mathModeToggle.addEventListener("change", () => {
     syncRenderModeControls();
     applyMathStyleMode(mathModeToggle.checked);
@@ -150,6 +154,7 @@ function bindEvents() {
 
   renderer.domElement.addEventListener("pointermove", onPointerMove);
   syncRenderModeControls();
+  restoreSceneHintState();
 }
 
 /**
@@ -750,6 +755,28 @@ function updateStats({ status, name, size, vertices, polygons }) {
  */
 function setStatus(message) {
   statusText.textContent = message;
+}
+
+/**
+ * Ховає підказку на сцені та запам'ятовує вибір користувача в localStorage.
+ */
+function hideSceneHint() {
+  sceneHint.classList.add("is-hidden");
+  window.localStorage.setItem(HINT_STORAGE_KEY, "true");
+}
+
+/**
+ * Відновлює стан підказки між перезавантаженнями сторінки.
+ */
+function restoreSceneHintState() {
+  const isHidden = window.localStorage.getItem(HINT_STORAGE_KEY) === "true";
+
+  if (isHidden) {
+    sceneHint.classList.add("is-hidden");
+    return;
+  }
+
+  sceneHint.classList.remove("is-hidden");
 }
 
 /**

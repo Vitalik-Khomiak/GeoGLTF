@@ -303,12 +303,33 @@ kbd {
 }
 
 .overlay-card {
+  position: relative;
   max-width: 340px;
   padding: 16px 18px;
   border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.72);
   backdrop-filter: blur(10px);
   color: rgba(19, 34, 56, 0.9);
+}
+
+.overlay-card.is-hidden {
+  display: none;
+}
+
+.overlay-close-button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(19, 34, 56, 0.08);
+  color: rgba(19, 34, 56, 0.76);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
 }
 
 .overlay-title {

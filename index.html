@@ -121,7 +121,15 @@
         <div id="dropZone" class="viewer-canvas-wrapper">
           <canvas id="sceneCanvas"></canvas>
           <div class="canvas-overlay">
-            <div class="overlay-card">
+            <div id="sceneHint" class="overlay-card">
+              <button
+                id="closeHintButton"
+                class="overlay-close-button"
+                type="button"
+                aria-label="Закрити підказку"
+              >
+                ×
+              </button>
               <p class="overlay-title">Навчальний режим 3D-аналізу</p>
               <p>
                 Сцена автоматично центрує модель, додає координатну сітку та осі
