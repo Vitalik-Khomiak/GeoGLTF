@@ -14,11 +14,10 @@
     <div class="app-shell">
       <aside class="control-panel">
         <div class="brand-block">
-          <p class="eyebrow">GeoGLTF Viewer</p>
-          <h1>3D-переглядач для уроків математики</h1>
+          <p class="eyebrow">GLB Viewer</p>
+          <h1>3D-переглядач моделей</h1>
           <p class="panel-text">
-            Завантажуйте локальні <code>.glb</code> моделі, аналізуйте їх у
-            системі координат і обертайте сцену навігацією, близькою до SculptGL.
+            Відкривай <code>.glb</code>, крути сцену і перемикай режими.
           </p>
         </div>
 
@@ -37,11 +36,6 @@
 
         <div class="panel-section">
           <p class="section-title">Бібліотека моделей</p>
-          <p class="panel-text compact-text">
-            Опубліковані моделі доступні всім учням на сайті. Локальні моделі
-            живуть лише в поточній сесії браузера.
-          </p>
-
           <div class="library-block">
             <p class="library-title">Опублікована колекція</p>
             <div id="publishedLibrary" class="asset-list"></div>
@@ -54,33 +48,8 @@
         </div>
 
         <div class="panel-section">
-          <p class="section-title">Параметри сцени</p>
-          <label class="toggle">
-            <input id="mathModeToggle" type="checkbox" checked />
-            <span>Математичний режим GeoGebra</span>
-          </label>
-          <label class="toggle">
-            <input id="gridToggle" type="checkbox" checked />
-            <span>Показати сітку</span>
-          </label>
-          <label class="toggle">
-            <input id="axesToggle" type="checkbox" checked />
-            <span>Показати осі X/Y/Z</span>
-          </label>
-          <label class="toggle">
-            <input id="wireframeToggle" type="checkbox" />
-            <span>Wireframe режим</span>
-          </label>
-        </div>
-
-        <div class="panel-section">
-          <p class="section-title">Навігація</p>
-          <ul class="hint-list">
-            <li>Ліва кнопка: обертання</li>
-            <li>Права кнопка: панорамування</li>
-            <li>Коліщатко: масштабування</li>
-            <li><kbd>R</kbd>: скидання камери</li>
-          </ul>
+          <p class="section-title">Керування</p>
+          <p class="panel-text compact-text">Ліва: обертання • Права: панорамування • Коліщатко: масштаб</p>
         </div>
 
         <div class="panel-section">
@@ -113,10 +82,25 @@
       <main class="viewer-panel">
         <div class="viewer-toolbar">
           <p id="statusText">Готово до завантаження моделі</p>
-          <p class="toolbar-note">
-            Перетягніть один або кілька <code>.glb</code> файлів на сцену або
-            відкрийте їх кнопкою.
-          </p>
+          <p class="toolbar-note">Drag & drop або кнопка додавання</p>
+        </div>
+        <div class="scene-quick-controls">
+          <label class="quick-toggle">
+            <input id="mathModeToggle" type="checkbox" checked />
+            <span>Geo</span>
+          </label>
+          <label class="quick-toggle">
+            <input id="gridToggle" type="checkbox" checked />
+            <span>Сітка</span>
+          </label>
+          <label class="quick-toggle">
+            <input id="axesToggle" type="checkbox" checked />
+            <span>Осі</span>
+          </label>
+          <label class="quick-toggle">
+            <input id="wireframeToggle" type="checkbox" />
+            <span>Wire</span>
+          </label>
         </div>
         <div id="dropZone" class="viewer-canvas-wrapper">
           <canvas id="sceneCanvas"></canvas>
@@ -131,10 +115,7 @@
                 ×
               </button>
               <p class="overlay-title">Навчальний режим 3D-аналізу</p>
-              <p>
-                Сцена автоматично центрує модель, додає координатну сітку та осі
-                для просторового аналізу.
-              </p>
+              <p>Автоцентрування, сітка та осі для швидкого аналізу.</p>
             </div>
           </div>
         </div>
