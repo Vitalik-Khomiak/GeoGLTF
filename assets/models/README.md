@@ -8,7 +8,7 @@
 - `pyramid.glb`
 - `prism.glb`
 
-Після цього додай записи у `C:\Users\Vital\OneDrive\Диплом\GeoGLTF\assets\library.json`.
+Після цього додай записи у `assets/library.json`.
 
 Приклад структури:
 

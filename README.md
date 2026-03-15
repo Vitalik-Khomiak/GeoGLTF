@@ -7,7 +7,7 @@
 1. Відкрийте PowerShell у каталозі проєкту:
 
 ```powershell
-cd C:\Users\Vital\OneDrive\Диплом\GeoGLTF
+cd path\to\GeoGLTF
 ```
 
 2. Запустіть простий локальний сервер:
