@@ -46,6 +46,24 @@ kbd {
   padding: 18px;
 }
 
+.app-shell.app-mode-library {
+  grid-template-columns: 1fr;
+  max-width: 1120px;
+  margin: 0 auto;
+}
+
+.app-shell.app-mode-library .viewer-panel {
+  display: none;
+}
+
+.app-shell.app-mode-viewer {
+  grid-template-columns: 1fr;
+}
+
+.app-shell.app-mode-viewer .control-panel {
+  display: none;
+}
+
 .control-panel,
 .viewer-panel {
   border-radius: var(--radius-xl);
@@ -62,6 +80,10 @@ kbd {
     linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent),
     var(--panel-bg);
   color: var(--text-main);
+}
+
+.app-mode-library .control-panel {
+  max-width: none;
 }
 
 .brand-block h1 {
@@ -171,6 +193,10 @@ kbd {
   gap: 10px;
 }
 
+.app-mode-library .asset-list {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
 .asset-card {
   width: 100%;
   padding: 12px 14px;
@@ -264,10 +290,48 @@ kbd {
   margin: 0;
 }
 
-.toolbar-note {
+.viewer-toolbar-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.viewer-toolbar-text {
+  display: grid;
+  gap: 4px;
+}
+
+#viewerTitle {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--dark-text);
+}
+
+#statusText {
   color: rgba(19, 34, 56, 0.72);
-  text-align: right;
+  font-size: 0.9rem;
+}
+
+.toolbar-button {
+  border: none;
+  border-radius: 999px;
+  padding: 11px 16px;
+  background: rgba(19, 34, 56, 0.1);
+  color: var(--dark-text);
   font-size: 0.92rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.toolbar-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.toolbar-button.accent {
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  color: #08131f;
 }
 
 .scene-quick-controls {
@@ -308,6 +372,22 @@ kbd {
 .viewer-canvas-wrapper.drag-active {
   outline: 3px dashed rgba(251, 133, 0, 0.8);
   outline-offset: -14px;
+}
+
+.view-gizmo {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 96px;
+  height: 96px;
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.6), transparent 45%),
+    rgba(19, 34, 56, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  box-shadow: 0 14px 30px rgba(19, 34, 56, 0.12);
+  backdrop-filter: blur(6px);
+  pointer-events: none;
 }
 
 #sceneCanvas {
@@ -385,10 +465,6 @@ kbd {
     flex-direction: column;
     align-items: flex-start;
   }
-
-  .toolbar-note {
-    text-align: left;
-  }
 }
 
 @media (max-width: 720px) {
@@ -430,18 +506,38 @@ kbd {
     height: 54vh;
   }
 
+  .view-gizmo {
+    top: 10px;
+    right: 10px;
+    width: 78px;
+    height: 78px;
+    border-radius: 16px;
+  }
+
   .viewer-toolbar {
     gap: 8px;
     padding: 14px 16px 12px;
   }
 
-  .viewer-toolbar p:first-child {
-    font-size: 0.98rem;
-    font-weight: 700;
+  .viewer-toolbar-main {
+    width: 100%;
   }
 
-  .toolbar-note {
-    font-size: 0.84rem;
+  .viewer-toolbar {
+    align-items: stretch;
+  }
+
+  .toolbar-button {
+    width: 100%;
+    text-align: center;
+  }
+
+  #viewerTitle {
+    font-size: 0.98rem;
+  }
+
+  #statusText {
+    font-size: 0.82rem;
   }
 
   .scene-quick-controls {
@@ -455,6 +551,10 @@ kbd {
   .quick-toggle {
     padding: 8px 10px;
     font-size: 0.84rem;
+  }
+
+  .app-mode-library .asset-list {
+    grid-template-columns: 1fr;
   }
 
   .canvas-overlay {

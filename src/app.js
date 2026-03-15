@@ -16,6 +16,11 @@ const publishedLibrary = document.querySelector("#publishedLibrary");
 const sessionLibrary = document.querySelector("#sessionLibrary");
 const sceneHint = document.querySelector("#sceneHint");
 const closeHintButton = document.querySelector("#closeHintButton");
+const viewGizmo = document.querySelector("#viewGizmo");
+const appShell = document.querySelector("#appShell");
+const backToLibraryButton = document.querySelector("#backToLibraryButton");
+const nextModelButton = document.querySelector("#nextModelButton");
+const viewerTitle = document.querySelector("#viewerTitle");
 
 const scene = new THREE.Scene();
 const renderer = createRenderer(canvas);
@@ -34,6 +39,10 @@ const mathStyle = {
   gapSize: 0.12,
 };
 const HINT_STORAGE_KEY = "geogltf-scene-hint-hidden";
+const gizmoScene = new THREE.Scene();
+const gizmoCamera = new THREE.PerspectiveCamera(36, 1, 0.1, 10);
+const gizmoRoot = new THREE.Group();
+const gizmoViewport = { x: 0, y: 0, width: 96, height: 96 };
 
 const gridHelper = new THREE.GridHelper(20, 20, 0x507dbc, 0x8aa1b1);
 gridHelper.position.y = -0.0001;
@@ -66,6 +75,7 @@ function createRenderer(targetCanvas) {
 
   nextRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   nextRenderer.outputColorSpace = THREE.SRGBColorSpace;
+  nextRenderer.autoClear = false;
   return nextRenderer;
 }
 
@@ -115,7 +125,92 @@ function initializeScene() {
   rimLight.position.set(-8, 6, -10);
   scene.add(rimLight);
 
+  initializeViewGizmo();
   resizeRenderer();
+}
+
+/**
+ * Створює компактний навігатор орієнтації, який повторює поворот камери.
+ */
+function initializeViewGizmo() {
+  gizmoCamera.position.set(0, 0, 4.2);
+
+  const ambientLight = new THREE.AmbientLight(0xffffff, 1.15);
+  gizmoScene.add(ambientLight);
+
+  const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+  directionalLight.position.set(2, 3, 4);
+  gizmoScene.add(directionalLight);
+
+  gizmoRoot.add(createGizmoAxis("x", 0xff3b58, new THREE.Vector3(1, 0, 0)));
+  gizmoRoot.add(createGizmoAxis("y", 0x7bdc2f, new THREE.Vector3(0, 1, 0)));
+  gizmoRoot.add(createGizmoAxis("z", 0x2b7fff, new THREE.Vector3(0, 0, 1)));
+  gizmoScene.add(gizmoRoot);
+}
+
+/**
+ * Створює одну вісь gizmo з лінією, кулькою та текстовою міткою.
+ */
+function createGizmoAxis(label, color, direction) {
+  const axisGroup = new THREE.Group();
+
+  const line = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, 0),
+      direction.clone().multiplyScalar(0.9),
+    ]),
+    new THREE.LineBasicMaterial({ color }),
+  );
+  axisGroup.add(line);
+
+  const sphere = new THREE.Mesh(
+    new THREE.SphereGeometry(0.13, 18, 18),
+    new THREE.MeshPhongMaterial({ color }),
+  );
+  sphere.position.copy(direction).multiplyScalar(1.02);
+  axisGroup.add(sphere);
+
+  const labelSprite = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: createAxisLabelTexture(label.toUpperCase(), color),
+      transparent: true,
+      depthTest: false,
+    }),
+  );
+  labelSprite.scale.set(0.46, 0.46, 0.46);
+  labelSprite.position.copy(direction).multiplyScalar(1.38);
+  axisGroup.add(labelSprite);
+
+  return axisGroup;
+}
+
+/**
+ * Генерує маленьку текстуру для підпису осі без зовнішніх шрифтів або DOM-накладок.
+ */
+function createAxisLabelTexture(text, color) {
+  const size = 96;
+  const labelCanvas = document.createElement("canvas");
+  labelCanvas.width = size;
+  labelCanvas.height = size;
+  const context = labelCanvas.getContext("2d");
+
+  context.clearRect(0, 0, size, size);
+  context.beginPath();
+  context.arc(size / 2, size / 2, 28, 0, Math.PI * 2);
+  context.fillStyle = "#ffffff";
+  context.fill();
+  context.lineWidth = 6;
+  context.strokeStyle = `#${color.toString(16).padStart(6, "0")}`;
+  context.stroke();
+  context.fillStyle = "#132238";
+  context.font = "bold 40px Trebuchet MS";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(text, size / 2, size / 2 + 1);
+
+  const texture = new THREE.CanvasTexture(labelCanvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
 }
 
 /**
@@ -126,6 +221,8 @@ function bindEvents() {
   fileInput.addEventListener("change", onFileInputChange);
   resetViewButton.addEventListener("click", frameCurrentModel);
   closeHintButton.addEventListener("click", hideSceneHint);
+  backToLibraryButton.addEventListener("click", switchToLibraryMode);
+  nextModelButton.addEventListener("click", loadNextAsset);
   mathModeToggle.addEventListener("change", () => {
     syncRenderModeControls();
     applyMathStyleMode(mathModeToggle.checked);
@@ -250,7 +347,7 @@ function registerSessionFiles(files) {
   renderAssetLibraries();
 
   if (newlyAddedAssets.length) {
-    loadAsset(newlyAddedAssets[0]);
+    setStatus(`Додано локальних моделей: ${newlyAddedAssets.length}`);
   }
 }
 
@@ -276,10 +373,6 @@ async function loadPublishedLibrary() {
         .filter(Boolean),
     );
     renderAssetLibraries();
-
-    if (!activeAssetId && publishedAssets.length) {
-      loadAsset(publishedAssets[0]);
-    }
   } catch (error) {
     console.error(error);
     publishedAssets.length = 0;
@@ -311,6 +404,7 @@ function normalizePublishedAsset(entry, index) {
 function renderAssetLibraries() {
   renderAssetList(publishedLibrary, publishedAssets, "Опублікованих моделей поки немає.");
   renderAssetList(sessionLibrary, sessionAssets, "Локальних моделей поки не додано.");
+  updateViewerActions();
 }
 
 /**
@@ -332,7 +426,7 @@ function renderAssetList(container, assets, emptyMessage) {
     button.type = "button";
     button.className = `asset-card${asset.id === activeAssetId ? " active" : ""}`;
     button.addEventListener("click", () => {
-      loadAsset(asset);
+      loadAsset(asset, { switchMode: true });
     });
 
     const title = document.createElement("span");
@@ -351,10 +445,12 @@ function renderAssetList(container, assets, emptyMessage) {
 /**
  * Завантажує модель із вибраного джерела: локального файлу або JSON-каталогу.
  */
-async function loadAsset(asset) {
+async function loadAsset(asset, options = {}) {
+  const { switchMode = true } = options;
   activeAssetId = asset.id;
   renderAssetLibraries();
   disposeActiveModel();
+  updateViewerHeader(asset.title);
 
   setStatus(`Завантаження моделі: ${asset.title}`);
   updateStats({
@@ -372,9 +468,66 @@ async function loadAsset(asset) {
         : await readFileAsArrayBuffer(asset.file);
 
     await parseModelBuffer(arrayBuffer, asset);
+
+    if (switchMode) {
+      switchToViewerMode();
+    }
   } catch (error) {
     handleLoadError(asset, error);
   }
+}
+
+/**
+ * Повертає єдиний список моделей для циклічного переходу між ними.
+ */
+function getAllAssets() {
+  return [...publishedAssets, ...sessionAssets];
+}
+
+/**
+ * Завантажує наступну модель по колу відносно поточної активної.
+ */
+function loadNextAsset() {
+  const allAssets = getAllAssets();
+
+  if (!allAssets.length) {
+    return;
+  }
+
+  const activeIndex = allAssets.findIndex((asset) => asset.id === activeAssetId);
+  const nextIndex = activeIndex >= 0 ? (activeIndex + 1) % allAssets.length : 0;
+  loadAsset(allAssets[nextIndex], { switchMode: true });
+}
+
+/**
+ * Перемикає застосунок у режим бібліотеки моделей.
+ */
+function switchToLibraryMode() {
+  appShell.classList.remove("app-mode-viewer");
+  appShell.classList.add("app-mode-library");
+}
+
+/**
+ * Перемикає застосунок у режим повноекранного перегляду моделі.
+ */
+function switchToViewerMode() {
+  appShell.classList.remove("app-mode-library");
+  appShell.classList.add("app-mode-viewer");
+  resizeRenderer();
+}
+
+/**
+ * Оновлює заголовок активної моделі у viewer-toolbar.
+ */
+function updateViewerHeader(title) {
+  viewerTitle.textContent = title || "Перегляд моделі";
+}
+
+/**
+ * Актуалізує стан кнопок навігації у viewer залежно від наявності моделей.
+ */
+function updateViewerActions() {
+  nextModelButton.disabled = getAllAssets().length === 0;
 }
 
 /**
@@ -887,6 +1040,15 @@ function resizeRenderer() {
   renderer.setSize(width, height);
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
+
+  const gizmoBounds = viewGizmo.getBoundingClientRect();
+  const canvasBounds = renderer.domElement.getBoundingClientRect();
+  gizmoViewport.width = Math.round(gizmoBounds.width);
+  gizmoViewport.height = Math.round(gizmoBounds.height);
+  gizmoViewport.x = Math.round(gizmoBounds.left - canvasBounds.left);
+  gizmoViewport.y = Math.round(canvasBounds.bottom - gizmoBounds.bottom);
+  gizmoCamera.aspect = gizmoViewport.width / gizmoViewport.height;
+  gizmoCamera.updateProjectionMatrix();
 }
 
 /**
@@ -929,5 +1091,36 @@ function onPointerMove(event) {
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
+  gizmoRoot.quaternion.copy(camera.quaternion).invert();
+  renderer.setViewport(0, 0, renderer.domElement.width, renderer.domElement.height);
+  renderer.setScissorTest(false);
+  renderer.clear();
   renderer.render(scene, camera);
+  renderViewGizmo();
+}
+
+/**
+ * Дорендерює mini-gizmo поверх головної сцени у куті viewport.
+ */
+function renderViewGizmo() {
+  if (!gizmoViewport.width || !gizmoViewport.height) {
+    return;
+  }
+
+  renderer.clearDepth();
+  renderer.setScissorTest(true);
+  renderer.setViewport(
+    gizmoViewport.x,
+    gizmoViewport.y,
+    gizmoViewport.width,
+    gizmoViewport.height,
+  );
+  renderer.setScissor(
+    gizmoViewport.x,
+    gizmoViewport.y,
+    gizmoViewport.width,
+    gizmoViewport.height,
+  );
+  renderer.render(gizmoScene, gizmoCamera);
+  renderer.setScissorTest(false);
 }

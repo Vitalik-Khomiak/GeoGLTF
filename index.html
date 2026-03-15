@@ -11,13 +11,13 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <div class="app-shell">
+    <div id="appShell" class="app-shell app-mode-library">
       <aside class="control-panel">
         <div class="brand-block">
           <p class="eyebrow">GLB Viewer</p>
-          <h1>3D-переглядач моделей</h1>
+          <h1>Обери 3D-модель</h1>
           <p class="panel-text">
-            Відкривай <code>.glb</code>, крути сцену і перемикай режими.
+            Відкрий модель із бібліотеки або додай власну.
           </p>
         </div>
 
@@ -81,8 +81,18 @@
 
       <main class="viewer-panel">
         <div class="viewer-toolbar">
-          <p id="statusText">Готово до завантаження моделі</p>
-          <p class="toolbar-note">Drag & drop або кнопка додавання</p>
+          <div class="viewer-toolbar-main">
+            <button id="backToLibraryButton" class="toolbar-button" type="button">
+              Назад
+            </button>
+            <div class="viewer-toolbar-text">
+              <p id="viewerTitle">Перегляд моделі</p>
+              <p id="statusText">Оберіть модель у бібліотеці</p>
+            </div>
+          </div>
+          <button id="nextModelButton" class="toolbar-button accent" type="button">
+            Наступна
+          </button>
         </div>
         <div class="scene-quick-controls">
           <label class="quick-toggle">
@@ -104,6 +114,7 @@
         </div>
         <div id="dropZone" class="viewer-canvas-wrapper">
           <canvas id="sceneCanvas"></canvas>
+          <div id="viewGizmo" class="view-gizmo"></div>
           <div class="canvas-overlay">
             <div id="sceneHint" class="overlay-card">
               <button

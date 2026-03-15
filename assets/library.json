@@ -11,6 +11,18 @@
       "description": "Модель для аналізу перерізів та просторового уявлення",
       "file": "./assets/models/cube_slice.glb",
       "sizeLabel": "3.05 KB"
+    },
+    {
+      "title": "Циліндр",
+      "description": "Модель для обертання та аналізу тіл обертання",
+      "file": "./assets/models/Cylynder.glb",
+      "sizeLabel": "4.23 KB"
+    },
+    {
+      "title": "Піраміда",
+      "description": "Модель для теми многогранників і висоти",
+      "file": "./assets/models/Piramide.glb",
+      "sizeLabel": "1.30 KB"
     }
   ]
 }
