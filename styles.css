@@ -336,6 +336,7 @@ kbd {
   background: rgba(255, 255, 255, 0.72);
   backdrop-filter: blur(10px);
   color: rgba(19, 34, 56, 0.9);
+  pointer-events: auto;
 }
 
 .overlay-card.is-hidden {
