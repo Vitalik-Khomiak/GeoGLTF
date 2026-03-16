@@ -303,6 +303,8 @@ kbd {
 .viewer-panel {
   display: grid;
   grid-template-rows: auto auto 1fr;
+  width: 100%;
+  min-width: 0;
   background: rgba(255, 255, 255, 0.68);
   border: 1px solid rgba(255, 255, 255, 0.6);
 }
@@ -411,6 +413,7 @@ kbd {
 .viewer-canvas-wrapper {
   position: relative;
   min-height: 520px;
+  min-width: 0;
   height: calc(100vh - 140px);
   background:
     radial-gradient(circle at top, rgba(255, 255, 255, 0.38), transparent 24%),
@@ -551,7 +554,7 @@ kbd {
 
   .viewer-canvas-wrapper {
     min-height: 360px;
-    height: 54vh;
+    height: 54dvh;
   }
 
   .view-gizmo {

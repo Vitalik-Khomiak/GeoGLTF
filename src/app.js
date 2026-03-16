@@ -489,6 +489,10 @@ async function loadAsset(asset, options = {}) {
   disposeActiveModel();
   updateViewerHeader(asset.title);
 
+  if (switchMode) {
+    switchToViewerMode();
+  }
+
   setStatus(`Завантаження моделі: ${asset.title}`);
   updateStats({
     status: "Завантаження...",
@@ -501,10 +505,7 @@ async function loadAsset(asset, options = {}) {
   try {
     const arrayBuffer = await resolveAssetArrayBuffer(asset);
     await parseModelBuffer(arrayBuffer, asset);
-
-    if (switchMode) {
-      switchToViewerMode();
-    }
+    syncViewerLayout(true);
   } catch (error) {
     handleLoadError(asset, error);
   }
@@ -668,7 +669,8 @@ function switchToLibraryMode() {
 function switchToViewerMode() {
   appShell.classList.remove("app-mode-library");
   appShell.classList.add("app-mode-viewer");
-  resizeRenderer();
+  window.scrollTo(0, 0);
+  syncViewerLayout(Boolean(activeModelRoot));
 }
 
 /**
@@ -1270,6 +1272,21 @@ function resizeRenderer() {
   gizmoViewport.y = Math.round(canvasBounds.bottom - gizmoBounds.bottom);
   gizmoCamera.aspect = gizmoViewport.width / gizmoViewport.height;
   gizmoCamera.updateProjectionMatrix();
+}
+
+/**
+ * Повторно синхронізує layout viewer після зміни режиму, що особливо важливо на мобільних браузерах.
+ */
+function syncViewerLayout(reframeModel = false) {
+  resizeRenderer();
+
+  requestAnimationFrame(() => {
+    resizeRenderer();
+
+    if (reframeModel && activeModelRoot) {
+      frameCurrentModel({ preserveView: true });
+    }
+  });
 }
 
 /**
