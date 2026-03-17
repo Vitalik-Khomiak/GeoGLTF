@@ -432,12 +432,9 @@ kbd {
   width: 96px;
   height: 96px;
   border-radius: 20px;
-  background:
-    radial-gradient(circle at top left, rgba(255, 255, 255, 0.6), transparent 45%),
-    rgba(19, 34, 56, 0.16);
+  background: rgba(255, 255, 255, 0.92);
   border: 1px solid rgba(255, 255, 255, 0.4);
   box-shadow: 0 14px 30px rgba(19, 34, 56, 0.12);
-  backdrop-filter: blur(6px);
   pointer-events: none;
 }
 
