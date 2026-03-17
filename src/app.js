@@ -105,7 +105,7 @@ function createCamera() {
 }
 
 /**
- * Налаштовує OrbitControls так, щоб взаємодія була близькою до SculptGL.
+ * Налаштовує OrbitControls для вільного обертання, панорамування та масштабування моделі.
  */
 function createControls(targetCamera, domElement) {
   const nextControls = new OrbitControls(targetCamera, domElement);
@@ -242,6 +242,10 @@ function bindEvents() {
   backToLibraryButton.addEventListener("click", switchToLibraryMode);
   nextModelButton.addEventListener("click", loadNextAsset);
   mathModeToggle.addEventListener("change", () => {
+    if (mathModeToggle.checked && wireframeToggle.checked) {
+      wireframeToggle.checked = false;
+    }
+
     syncRenderModeControls();
     applyMathStyleMode(mathModeToggle.checked);
     applyWireframeMode(wireframeToggle.checked);
@@ -253,6 +257,12 @@ function bindEvents() {
     axesHelper.visible = axesToggle.checked;
   });
   wireframeToggle.addEventListener("change", () => {
+    if (wireframeToggle.checked && mathModeToggle.checked) {
+      mathModeToggle.checked = false;
+      applyMathStyleMode(false);
+    }
+
+    syncRenderModeControls();
     applyWireframeMode(wireframeToggle.checked);
   });
   controls.addEventListener("change", updateSavedCameraState);
@@ -954,14 +964,9 @@ function applyMathStyleMode(isEnabled) {
  * Синхронізує математичний режим і wireframe, щоб режими не конфліктували між собою.
  */
 function syncRenderModeControls() {
-  const hadWireframe = wireframeToggle.checked;
-  wireframeToggle.disabled = mathModeToggle.checked;
+  const shouldDisableWireframe = mathModeToggle.checked && wireframeToggle.checked;
 
-  if (mathModeToggle.checked && wireframeToggle.checked) {
-    wireframeToggle.checked = false;
-  }
-
-  if (mathModeToggle.checked && hadWireframe && activeModelRoot) {
+  if (shouldDisableWireframe && activeModelRoot) {
     activeModelRoot.traverse((node) => {
       if (!node.isMesh) {
         return;

@@ -92,6 +92,13 @@ kbd {
   line-height: 1.05;
 }
 
+.project-caption {
+  margin: -4px 0 10px;
+  font-size: 0.84rem;
+  color: var(--text-soft);
+  letter-spacing: 0.03em;
+}
+
 .eyebrow,
 .section-title {
   margin: 0;
