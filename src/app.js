@@ -493,7 +493,7 @@ function renderAssetList(container, assets, emptyMessage) {
  * Завантажує модель із вибраного джерела: локального файлу або JSON-каталогу.
  */
 async function loadAsset(asset, options = {}) {
-  const { switchMode = true } = options;
+  const { switchMode = true, preserveView = false } = options;
   activeAssetId = asset.id;
   renderAssetLibraries();
   disposeActiveModel();
@@ -514,8 +514,8 @@ async function loadAsset(asset, options = {}) {
 
   try {
     const arrayBuffer = await resolveAssetArrayBuffer(asset);
-    await parseModelBuffer(arrayBuffer, asset);
-    syncViewerLayout(true);
+    await parseModelBuffer(arrayBuffer, asset, { preserveView });
+    syncViewerLayout({ reframeModel: true, preserveView });
   } catch (error) {
     handleLoadError(asset, error);
   }
@@ -662,7 +662,7 @@ function loadNextAsset() {
 
   const activeIndex = allAssets.findIndex((asset) => asset.id === activeAssetId);
   const nextIndex = activeIndex >= 0 ? (activeIndex + 1) % allAssets.length : 0;
-  loadAsset(allAssets[nextIndex], { switchMode: true });
+  loadAsset(allAssets[nextIndex], { switchMode: true, preserveView: true });
 }
 
 /**
@@ -680,7 +680,10 @@ function switchToViewerMode() {
   appShell.classList.remove("app-mode-library");
   appShell.classList.add("app-mode-viewer");
   window.scrollTo(0, 0);
-  syncViewerLayout(Boolean(activeModelRoot));
+  syncViewerLayout({
+    reframeModel: Boolean(activeModelRoot),
+    preserveView: false,
+  });
 }
 
 /**
@@ -778,7 +781,9 @@ async function resolveAssetArrayBuffer(asset) {
 /**
  * Парсить буфер моделі та оновлює сцену й статистику після успішного імпорту.
  */
-function parseModelBuffer(arrayBuffer, asset) {
+function parseModelBuffer(arrayBuffer, asset, options = {}) {
+  const { preserveView = false } = options;
+
   return new Promise((resolve, reject) => {
     loader.parse(
       arrayBuffer,
@@ -790,7 +795,7 @@ function parseModelBuffer(arrayBuffer, asset) {
         scene.add(activeModelRoot);
         applyMathStyleMode(mathModeToggle.checked);
         applyWireframeMode(wireframeToggle.checked);
-        frameCurrentModel({ preserveView: true });
+        frameCurrentModel({ preserveView });
 
         const stats = collectModelStats(activeModelRoot);
         updateStats({
@@ -1282,14 +1287,16 @@ function resizeRenderer() {
 /**
  * Повторно синхронізує layout viewer після зміни режиму, що особливо важливо на мобільних браузерах.
  */
-function syncViewerLayout(reframeModel = false) {
+function syncViewerLayout(options = {}) {
+  const { reframeModel = false, preserveView = false } = options;
+
   resizeRenderer();
 
   requestAnimationFrame(() => {
     resizeRenderer();
 
     if (reframeModel && activeModelRoot) {
-      frameCurrentModel({ preserveView: true });
+      frameCurrentModel({ preserveView });
     }
   });
 }
