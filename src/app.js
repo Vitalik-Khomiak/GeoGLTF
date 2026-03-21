@@ -23,6 +23,7 @@ const viewerResetButton = document.querySelector("#viewerResetButton");
 const quickResetButton = document.querySelector("#quickResetButton");
 const nextModelButton = document.querySelector("#nextModelButton");
 const viewerTitle = document.querySelector("#viewerTitle");
+const projectUpdated = document.querySelector("#projectUpdated");
 
 const scene = new THREE.Scene();
 const renderer = createRenderer(canvas);
@@ -73,6 +74,7 @@ const publishedAssets = [];
 const sessionAssets = [];
 
 initializeScene();
+updateProjectUpdatedLabel();
 bindEvents();
 renderAssetLibraries();
 loadPublishedLibrary();
@@ -227,6 +229,79 @@ function createAxisLabelTexture(text, color) {
   const texture = new THREE.CanvasTexture(labelCanvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
+}
+
+/**
+ * Оновлює дату останнього оновлення коду з GitHub, а локально використовує дату зміни файлу як fallback.
+ */
+async function updateProjectUpdatedLabel() {
+  if (!projectUpdated) {
+    return;
+  }
+
+  projectUpdated.textContent = "Оновлення коду: перевірка...";
+
+  try {
+    const repoInfo = resolveGitHubRepoInfo();
+
+    if (!repoInfo) {
+      throw new Error("GitHub repo info unavailable");
+    }
+
+    const response = await fetch(
+      `https://api.github.com/repos/${repoInfo.owner}/${repoInfo.repo}/commits?per_page=1`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`GitHub API responded with ${response.status}`);
+    }
+
+    const [latestCommit] = await response.json();
+    const isoDate = latestCommit?.commit?.committer?.date ?? latestCommit?.commit?.author?.date;
+
+    if (!isoDate) {
+      throw new Error("Commit date missing");
+    }
+
+    projectUpdated.textContent = `Оновлення коду: ${formatDisplayDate(isoDate)}`;
+  } catch {
+    projectUpdated.textContent = `Оновлення коду: ${getLocalFallbackDate()}`;
+  }
+}
+
+/**
+ * Визначає owner/repo для GitHub Pages URL, щоб можна було підтягнути дату останнього коміту.
+ */
+function resolveGitHubRepoInfo() {
+  const { hostname, pathname } = window.location;
+  const pathParts = pathname.split("/").filter(Boolean);
+
+  if (hostname.endsWith(".github.io") && pathParts.length > 0) {
+    return {
+      owner: hostname.replace(".github.io", ""),
+      repo: pathParts[0],
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Форматує дату у звичний короткий вигляд для українського інтерфейсу.
+ */
+function formatDisplayDate(dateInput) {
+  return new Date(dateInput).toLocaleDateString("uk-UA", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
+/**
+ * Повертає локальний fallback, якщо GitHub API недоступний.
+ */
+function getLocalFallbackDate() {
+  return formatDisplayDate(document.lastModified || new Date());
 }
 
 /**

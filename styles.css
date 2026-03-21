@@ -99,6 +99,12 @@ kbd {
   letter-spacing: 0.03em;
 }
 
+.project-updated {
+  margin: -4px 0 12px;
+  font-size: 0.8rem;
+  color: var(--text-soft);
+}
+
 .eyebrow,
 .section-title {
   margin: 0;
