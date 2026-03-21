@@ -24,6 +24,7 @@ const quickResetButton = document.querySelector("#quickResetButton");
 const nextModelButton = document.querySelector("#nextModelButton");
 const viewerTitle = document.querySelector("#viewerTitle");
 const projectUpdated = document.querySelector("#projectUpdated");
+const viewerPanel = document.querySelector(".viewer-panel");
 
 const scene = new THREE.Scene();
 const renderer = createRenderer(canvas);
@@ -1398,15 +1399,19 @@ function disposeMaterial(material) {
  * Підлаштовує renderer та камеру під реальні розміри контейнера.
  */
 function resizeRenderer() {
+  syncMobileViewportHeight();
+
   const wrapper = dropZone;
-  const width = wrapper.clientWidth;
-  const height = wrapper.clientHeight;
+  const bounds = wrapper.getBoundingClientRect();
+  const width = Math.round(bounds.width);
+  const height = Math.round(bounds.height);
 
   if (!width || !height) {
     return;
   }
 
-  renderer.setSize(width, height);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(width, height, false);
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
 
@@ -1418,6 +1423,36 @@ function resizeRenderer() {
   gizmoViewport.y = Math.round(canvasBounds.bottom - gizmoBounds.bottom);
   gizmoCamera.aspect = gizmoViewport.width / gizmoViewport.height;
   gizmoCamera.updateProjectionMatrix();
+}
+
+/**
+ * На телефоні підлаштовує висоту canvas під реальну видиму частину екрана після всіх панелей.
+ */
+function syncMobileViewportHeight() {
+  const isMobileViewport = window.matchMedia("(max-width: 720px)").matches;
+  const isViewerMode = appShell.classList.contains("app-mode-viewer");
+
+  if (!isMobileViewport || !isViewerMode) {
+    dropZone.style.height = "";
+    viewerPanel.style.minHeight = "";
+    return;
+  }
+
+  const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+  const panelBounds = viewerPanel.getBoundingClientRect();
+  const wrapperBounds = dropZone.getBoundingClientRect();
+  const bottomInset = 12;
+  const availableHeight = Math.max(
+    280,
+    Math.floor(viewportHeight - wrapperBounds.top - bottomInset),
+  );
+  const panelHeight = Math.max(
+    Math.floor(viewportHeight - panelBounds.top - bottomInset),
+    availableHeight,
+  );
+
+  viewerPanel.style.minHeight = `${panelHeight}px`;
+  dropZone.style.height = `${availableHeight}px`;
 }
 
 /**
@@ -1435,6 +1470,14 @@ function syncViewerLayout(options = {}) {
       frameCurrentModel({ preserveView });
     }
   });
+
+  window.setTimeout(() => {
+    resizeRenderer();
+
+    if (reframeModel && activeModelRoot) {
+      frameCurrentModel({ preserveView });
+    }
+  }, 140);
 }
 
 /**

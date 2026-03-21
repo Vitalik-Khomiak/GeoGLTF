@@ -539,6 +539,11 @@ kbd {
     border-radius: 22px;
   }
 
+  .app-shell.app-mode-viewer {
+    min-height: 100dvh;
+    align-items: stretch;
+  }
+
   .control-panel {
     padding: 18px;
     gap: 12px;
@@ -562,9 +567,14 @@ kbd {
     padding: 12px 16px;
   }
 
+  .viewer-panel {
+    min-height: calc(100dvh - 24px);
+    grid-template-rows: auto auto minmax(0, 1fr);
+  }
+
   .viewer-canvas-wrapper {
-    min-height: 360px;
-    height: 54dvh;
+    min-height: 0;
+    height: auto;
   }
 
   .view-gizmo {
@@ -576,26 +586,33 @@ kbd {
   }
 
   .viewer-toolbar {
-    gap: 8px;
-    padding: 14px 16px 12px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+    gap: 10px;
+    padding: 12px;
   }
 
   .viewer-toolbar-main {
     width: 100%;
+    align-items: flex-start;
   }
 
-  .viewer-toolbar {
-    align-items: stretch;
+  .viewer-toolbar-text {
+    min-width: 0;
   }
 
   .viewer-toolbar-actions {
     width: 100%;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
   }
 
   .toolbar-button {
-    width: 100%;
+    width: auto;
     text-align: center;
+    padding: 10px 12px;
   }
 
   #viewerTitle {
@@ -604,14 +621,30 @@ kbd {
 
   #statusText {
     font-size: 0.82rem;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
 
   .scene-quick-controls {
     position: sticky;
     top: 0;
     z-index: 5;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
     gap: 8px;
     padding: 10px 12px;
+  }
+
+  .scene-quick-controls::-webkit-scrollbar {
+    display: none;
+  }
+
+  .scene-quick-controls > * {
+    flex: 0 0 auto;
   }
 
   .quick-toggle {
