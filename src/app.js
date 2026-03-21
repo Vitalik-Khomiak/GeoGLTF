@@ -309,6 +309,16 @@ function getLocalFallbackDate() {
  */
 function bindEvents() {
   window.addEventListener("resize", resizeRenderer);
+  window.addEventListener("orientationchange", () => {
+    syncViewerLayout({ reframeModel: true, preserveView: true });
+  });
+
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", () => {
+      syncViewerLayout({ reframeModel: true, preserveView: true });
+    });
+  }
+
   fileInput.addEventListener("change", onFileInputChange);
   resetViewButton.addEventListener("click", frameCurrentModel);
   viewerResetButton.addEventListener("click", frameCurrentModel);
@@ -813,16 +823,49 @@ function applySavedCameraState(modelCenter, modelSize, minimumDistance = 0) {
 /**
  * Обчислює безпечну дистанцію камери, щоб модель повністю вміщалась навіть на вузькому екрані.
  */
-function getFitCameraDistance(bounds) {
-  const sphere = bounds.getBoundingSphere(new THREE.Sphere());
+function getFitCameraDistance(bounds, viewDirection) {
+  const center = bounds.getCenter(new THREE.Vector3());
+  const direction = viewDirection.clone().normalize();
+  const fallbackUp = Math.abs(direction.y) > 0.96
+    ? new THREE.Vector3(0, 0, 1)
+    : new THREE.Vector3(0, 1, 0);
+  const right = new THREE.Vector3().crossVectors(fallbackUp, direction).normalize();
+  const up = new THREE.Vector3().crossVectors(direction, right).normalize();
   const verticalHalfFov = THREE.MathUtils.degToRad(camera.fov * 0.5);
   const horizontalHalfFov = Math.atan(Math.tan(verticalHalfFov) * Math.max(camera.aspect, 0.1));
-  const safeVerticalHalfFov = Math.max(verticalHalfFov, 0.1);
-  const safeHorizontalHalfFov = Math.max(horizontalHalfFov, 0.1);
-  const verticalDistance = sphere.radius / Math.sin(safeVerticalHalfFov);
-  const horizontalDistance = sphere.radius / Math.sin(safeHorizontalHalfFov);
+  const tanVertical = Math.max(Math.tan(verticalHalfFov), 0.1);
+  const tanHorizontal = Math.max(Math.tan(horizontalHalfFov), 0.1);
+  const boxMin = bounds.min;
+  const boxMax = bounds.max;
+  const corners = [
+    new THREE.Vector3(boxMin.x, boxMin.y, boxMin.z),
+    new THREE.Vector3(boxMin.x, boxMin.y, boxMax.z),
+    new THREE.Vector3(boxMin.x, boxMax.y, boxMin.z),
+    new THREE.Vector3(boxMin.x, boxMax.y, boxMax.z),
+    new THREE.Vector3(boxMax.x, boxMin.y, boxMin.z),
+    new THREE.Vector3(boxMax.x, boxMin.y, boxMax.z),
+    new THREE.Vector3(boxMax.x, boxMax.y, boxMin.z),
+    new THREE.Vector3(boxMax.x, boxMax.y, boxMax.z),
+  ];
 
-  return Math.max(verticalDistance, horizontalDistance, 1) * 1.12;
+  let requiredDistance = 1;
+
+  corners.forEach((corner) => {
+    const relative = corner.clone().sub(center);
+    const alongDirection = relative.dot(direction);
+    const horizontalOffset = Math.abs(relative.dot(right));
+    const verticalOffset = Math.abs(relative.dot(up));
+    const distanceForHorizontalFit = alongDirection + horizontalOffset / tanHorizontal;
+    const distanceForVerticalFit = alongDirection + verticalOffset / tanVertical;
+
+    requiredDistance = Math.max(
+      requiredDistance,
+      distanceForHorizontalFit,
+      distanceForVerticalFit,
+    );
+  });
+
+  return requiredDistance * 1.16;
 }
 
 /**
@@ -964,13 +1007,16 @@ function frameCurrentModel(options = {}) {
   const center = bounds.getCenter(new THREE.Vector3());
   const maxDimension = Math.max(size.x, size.y, size.z);
   const safeDimension = maxDimension || 1;
-  const fitDistance = getFitCameraDistance(bounds);
+  const defaultDirection = new THREE.Vector3(1, 0.7, 1).normalize();
+  const fitDirection = preserveView && savedCameraState
+    ? savedCameraState.direction
+    : defaultDirection;
+  const fitDistance = getFitCameraDistance(bounds, fitDirection);
   currentModelFrameSize = safeDimension;
 
   if (preserveView && savedCameraState) {
     applySavedCameraState(center, safeDimension, fitDistance);
   } else {
-    const defaultDirection = new THREE.Vector3(1, 0.7, 1).normalize();
     camera.position.copy(center).add(defaultDirection.multiplyScalar(fitDistance));
     controls.target.copy(center);
   }
