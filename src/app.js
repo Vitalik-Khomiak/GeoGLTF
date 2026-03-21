@@ -724,12 +724,30 @@ function updateSavedCameraState() {
 /**
  * Переносить збережений ракурс на нову модель, зберігаючи кут і масштаб огляду.
  */
-function applySavedCameraState(modelCenter, modelSize) {
-  const distance = Math.max(modelSize, 1) * savedCameraState.distanceFactor;
+function applySavedCameraState(modelCenter, modelSize, minimumDistance = 0) {
+  const distance = Math.max(
+    Math.max(modelSize, 1) * savedCameraState.distanceFactor,
+    minimumDistance,
+  );
   const offset = savedCameraState.direction.clone().multiplyScalar(distance);
 
   controls.target.copy(modelCenter);
   camera.position.copy(modelCenter).add(offset);
+}
+
+/**
+ * Обчислює безпечну дистанцію камери, щоб модель повністю вміщалась навіть на вузькому екрані.
+ */
+function getFitCameraDistance(bounds) {
+  const sphere = bounds.getBoundingSphere(new THREE.Sphere());
+  const verticalHalfFov = THREE.MathUtils.degToRad(camera.fov * 0.5);
+  const horizontalHalfFov = Math.atan(Math.tan(verticalHalfFov) * Math.max(camera.aspect, 0.1));
+  const safeVerticalHalfFov = Math.max(verticalHalfFov, 0.1);
+  const safeHorizontalHalfFov = Math.max(horizontalHalfFov, 0.1);
+  const verticalDistance = sphere.radius / Math.sin(safeVerticalHalfFov);
+  const horizontalDistance = sphere.radius / Math.sin(safeHorizontalHalfFov);
+
+  return Math.max(verticalDistance, horizontalDistance, 1) * 1.12;
 }
 
 /**
@@ -871,17 +889,14 @@ function frameCurrentModel(options = {}) {
   const center = bounds.getCenter(new THREE.Vector3());
   const maxDimension = Math.max(size.x, size.y, size.z);
   const safeDimension = maxDimension || 1;
+  const fitDistance = getFitCameraDistance(bounds);
   currentModelFrameSize = safeDimension;
 
   if (preserveView && savedCameraState) {
-    applySavedCameraState(center, safeDimension);
+    applySavedCameraState(center, safeDimension, fitDistance);
   } else {
-    const distance = safeDimension * 1.8;
-    camera.position.set(
-      center.x + distance,
-      center.y + distance * 0.7,
-      center.z + distance,
-    );
+    const defaultDirection = new THREE.Vector3(1, 0.7, 1).normalize();
+    camera.position.copy(center).add(defaultDirection.multiplyScalar(fitDistance));
     controls.target.copy(center);
   }
 
