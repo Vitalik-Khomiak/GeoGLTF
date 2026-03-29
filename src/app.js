@@ -695,6 +695,11 @@ function createAssetThumbnail(arrayBuffer) {
         thumbnailScene.add(keyLight);
 
         const previewModel = gltf.scene;
+        if (!containsRenderableMesh(previewModel)) {
+          reject(new Error("Model has no renderable geometry."));
+          return;
+        }
+
         prepareThumbnailModel(previewModel);
         normalizeModelTransform(previewModel);
         thumbnailScene.add(previewModel);
@@ -965,6 +970,11 @@ function parseModelBuffer(arrayBuffer, asset, options = {}) {
       arrayBuffer,
       "",
       (gltf) => {
+        if (!containsRenderableMesh(gltf.scene)) {
+          reject(new Error("Модель не містить геометрії для відображення."));
+          return;
+        }
+
         activeModelRoot = gltf.scene;
         prepareModel(activeModelRoot);
         normalizeModelTransform(activeModelRoot);
@@ -991,6 +1001,25 @@ function parseModelBuffer(arrayBuffer, asset, options = {}) {
       },
     );
   });
+}
+
+/**
+ * Перевіряє, чи містить сцена хоча б один mesh із геометрією.
+ */
+function containsRenderableMesh(root) {
+  let hasMesh = false;
+
+  root?.traverse((node) => {
+    if (hasMesh) {
+      return;
+    }
+
+    if (node.isMesh && node.geometry) {
+      hasMesh = true;
+    }
+  });
+
+  return hasMesh;
 }
 
 /**
