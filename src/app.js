@@ -21,6 +21,9 @@ const appShell = document.querySelector("#appShell");
 const backToLibraryButton = document.querySelector("#backToLibraryButton");
 const viewerResetButton = document.querySelector("#viewerResetButton");
 const quickResetButton = document.querySelector("#quickResetButton");
+const unfoldModeToggle = document.querySelector("#unfoldModeToggle");
+const unfoldPlayButton = document.querySelector("#unfoldPlayButton");
+const unfoldProgressSlider = document.querySelector("#unfoldProgressSlider");
 const nextModelButton = document.querySelector("#nextModelButton");
 const viewerTitle = document.querySelector("#viewerTitle");
 const projectUpdated = document.querySelector("#projectUpdated");
@@ -34,6 +37,7 @@ const loader = new GLTFLoader();
 const thumbnailLoader = new GLTFLoader();
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
+const animationClock = new THREE.Clock();
 const mathStyle = {
   faceColor: new THREE.Color(0xc58f66),
   faceOpacity: 0.68,
@@ -73,6 +77,15 @@ let currentModelFrameSize = 1;
 let savedCameraState = null;
 const publishedAssets = [];
 const sessionAssets = [];
+let activeAsset = null;
+let activeUnfoldController = null;
+const unfoldState = {
+  enabled: false,
+  progress: 0,
+  targetProgress: 0,
+  isPlaying: false,
+  playbackDirection: 1,
+};
 
 initializeScene();
 updateProjectUpdatedLabel();
@@ -324,6 +337,11 @@ function bindEvents() {
   resetViewButton.addEventListener("click", frameCurrentModel);
   viewerResetButton.addEventListener("click", frameCurrentModel);
   quickResetButton.addEventListener("click", frameCurrentModel);
+  unfoldModeToggle.addEventListener("change", () => {
+    setUnfoldModeEnabled(unfoldModeToggle.checked);
+  });
+  unfoldPlayButton.addEventListener("click", toggleUnfoldPlayback);
+  unfoldProgressSlider.addEventListener("input", onUnfoldProgressInput);
   closeHintButton.addEventListener("click", hideSceneHint);
   backToLibraryButton.addEventListener("click", switchToLibraryMode);
   nextModelButton.addEventListener("click", loadNextAsset);
@@ -335,6 +353,7 @@ function bindEvents() {
     syncRenderModeControls();
     applyMathStyleMode(mathModeToggle.checked);
     applyWireframeMode(wireframeToggle.checked);
+    applyUnfoldRenderStyle();
   });
   gridToggle.addEventListener("change", () => {
     gridHelper.visible = gridToggle.checked;
@@ -350,6 +369,7 @@ function bindEvents() {
 
     syncRenderModeControls();
     applyWireframeMode(wireframeToggle.checked);
+    applyUnfoldRenderStyle();
   });
   controls.addEventListener("change", updateSavedCameraState);
 
@@ -367,6 +387,7 @@ function bindEvents() {
   renderer.domElement.addEventListener("pointermove", onPointerMove);
   syncRenderModeControls();
   restoreSceneHintState();
+  updateUnfoldUiState();
 }
 
 /**
@@ -580,6 +601,10 @@ function renderAssetList(container, assets, emptyMessage) {
  */
 async function loadAsset(asset, options = {}) {
   const { switchMode = true, preserveView = false } = options;
+  activeAsset = asset;
+  unfoldState.progress = 0;
+  unfoldState.targetProgress = 0;
+  unfoldState.isPlaying = false;
   activeAssetId = asset.id;
   renderAssetLibraries();
   disposeActiveModel();
@@ -784,6 +809,18 @@ function updateViewerHeader(title) {
  */
 function updateViewerActions() {
   nextModelButton.disabled = getAllAssets().length === 0;
+  updateUnfoldUiState();
+}
+
+/**
+ * Повертає поточне дерево об'єктів, яке користувач бачить у сцені.
+ */
+function getCurrentDisplayRoot() {
+  if (unfoldState.enabled && activeUnfoldController) {
+    return activeUnfoldController.group;
+  }
+
+  return activeModelRoot;
 }
 
 /**
@@ -930,8 +967,10 @@ function parseModelBuffer(arrayBuffer, asset, options = {}) {
         prepareModel(activeModelRoot);
         normalizeModelTransform(activeModelRoot);
         scene.add(activeModelRoot);
+        refreshUnfoldController();
         applyMathStyleMode(mathModeToggle.checked);
         applyWireframeMode(wireframeToggle.checked);
+        applyUnfoldRenderStyle();
         frameCurrentModel({ preserveView });
 
         const stats = collectModelStats(activeModelRoot);
@@ -995,15 +1034,18 @@ function normalizeModelTransform(modelRoot) {
  */
 function frameCurrentModel(options = {}) {
   const { preserveView = false } = options;
+  const displayRoot = getCurrentDisplayRoot();
 
-  if (!activeModelRoot) {
+  if (!displayRoot) {
     controls.target.set(0, 0, 0);
     camera.position.set(8, 6, 8);
     controls.update();
     return;
   }
 
-  const bounds = new THREE.Box3().setFromObject(activeModelRoot);
+  const bounds = unfoldState.enabled && activeUnfoldController?.maxBounds
+    ? activeUnfoldController.maxBounds.clone()
+    : new THREE.Box3().setFromObject(displayRoot);
   const size = bounds.getSize(new THREE.Vector3());
   const center = bounds.getCenter(new THREE.Vector3());
   const maxDimension = Math.max(size.x, size.y, size.z);
@@ -1055,6 +1097,553 @@ function updateGridScale(modelSize, modelCenter) {
 /**
  * Вмикає або вимикає каркасний режим для всіх мешів моделі.
  */
+/**
+ * Перебудовує допоміжну сцену розгортки для активної моделі, якщо вона підтримується.
+ */
+function refreshUnfoldController() {
+  disposeUnfoldController();
+
+  if (!activeModelRoot || !activeAsset) {
+    updateUnfoldUiState();
+    return;
+  }
+
+  const unfoldType = getSupportedUnfoldType(activeAsset);
+  if (!unfoldType) {
+    unfoldState.enabled = false;
+    unfoldState.isPlaying = false;
+    unfoldModeToggle.checked = false;
+    updateUnfoldUiState();
+    return;
+  }
+
+  activeUnfoldController = buildUnfoldController(unfoldType, activeModelRoot);
+
+  if (!activeUnfoldController) {
+    updateUnfoldUiState();
+    return;
+  }
+
+  activeUnfoldController.setProgress(unfoldState.progress);
+  scene.add(activeUnfoldController.group);
+  applyUnfoldRenderStyle();
+  syncUnfoldVisibility();
+  updateUnfoldUiState();
+}
+
+/**
+ * Видаляє побудовану сцену розгортки та звільняє її ресурси.
+ */
+function disposeUnfoldController() {
+  if (!activeUnfoldController) {
+    return;
+  }
+
+  scene.remove(activeUnfoldController.group);
+  activeUnfoldController.dispose();
+  activeUnfoldController = null;
+}
+
+/**
+ * Визначає, для яких навчальних фігур доступний режим розгортки.
+ */
+function getSupportedUnfoldType(asset) {
+  const source = [
+    asset?.title ?? "",
+    asset?.filePath ?? "",
+    asset?.file?.name ?? "",
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  if (source.includes("cube_slice") || source.includes("зріз")) {
+    return null;
+  }
+
+  if (source.includes("cube.glb") || source.includes("куб")) {
+    return "cube";
+  }
+
+  if (source.includes("piramide") || source.includes("пірамід") || source.includes("pyramid")) {
+    return "square-pyramid";
+  }
+
+  return null;
+}
+
+/**
+ * Синхронізує видимість звичайної моделі та її навчальної розгортки.
+ */
+function syncUnfoldVisibility() {
+  const isUnfoldVisible = unfoldState.enabled && Boolean(activeUnfoldController);
+
+  if (activeModelRoot) {
+    activeModelRoot.visible = !isUnfoldVisible;
+  }
+
+  if (activeUnfoldController) {
+    activeUnfoldController.group.visible = isUnfoldVisible;
+  }
+}
+
+/**
+ * Вмикає або вимикає режим розгортки для поточної підтримуваної фігури.
+ */
+function setUnfoldModeEnabled(isEnabled) {
+  if (!isEnabled) {
+    unfoldState.enabled = false;
+    unfoldState.isPlaying = false;
+    unfoldModeToggle.checked = false;
+    syncUnfoldVisibility();
+    frameCurrentModel({ preserveView: false });
+    updateUnfoldUiState();
+    return;
+  }
+
+  if (!activeModelRoot || !activeAsset) {
+    unfoldModeToggle.checked = false;
+    updateUnfoldUiState();
+    return;
+  }
+
+  if (!activeUnfoldController) {
+    refreshUnfoldController();
+  }
+
+  if (!activeUnfoldController) {
+    unfoldModeToggle.checked = false;
+    setStatus("Розгортка зараз доступна для куба і піраміди.");
+    updateUnfoldUiState();
+    return;
+  }
+
+  unfoldState.enabled = true;
+  unfoldState.isPlaying = false;
+  unfoldModeToggle.checked = true;
+  applyUnfoldRenderStyle();
+  syncUnfoldVisibility();
+  frameCurrentModel({ preserveView: false });
+  updateUnfoldUiState();
+}
+
+/**
+ * Керує автоматичним розгортанням або згортанням навчальної фігури.
+ */
+function toggleUnfoldPlayback() {
+  if (!unfoldState.enabled || !activeUnfoldController) {
+    return;
+  }
+
+  if (unfoldState.isPlaying) {
+    unfoldState.isPlaying = false;
+    updateUnfoldUiState();
+    return;
+  }
+
+  if (unfoldState.progress >= 0.999) {
+    unfoldState.playbackDirection = -1;
+    unfoldState.targetProgress = 0;
+  } else {
+    unfoldState.playbackDirection = 1;
+    unfoldState.targetProgress = 1;
+  }
+
+  unfoldState.isPlaying = true;
+  updateUnfoldUiState();
+}
+
+/**
+ * Дає змогу вручну зупинити розгортку на будь-якому проміжному етапі.
+ */
+function onUnfoldProgressInput(event) {
+  if (!activeUnfoldController) {
+    return;
+  }
+
+  const nextProgress = Number(event.target.value) / 100;
+  unfoldState.progress = nextProgress;
+  unfoldState.targetProgress = nextProgress;
+  unfoldState.isPlaying = false;
+  activeUnfoldController.setProgress(nextProgress);
+  updateUnfoldUiState();
+}
+
+/**
+ * Плавно анімує перехід між складеною фігурою та її розгорткою.
+ */
+function updateUnfoldAnimation(deltaSeconds) {
+  if (!unfoldState.enabled || !activeUnfoldController || !unfoldState.isPlaying) {
+    return;
+  }
+
+  const step = Math.min(deltaSeconds * 0.7, 1);
+  const direction = unfoldState.targetProgress >= unfoldState.progress ? 1 : -1;
+  const nextProgress = unfoldState.progress + direction * step;
+  const didReachTarget = direction > 0
+    ? nextProgress >= unfoldState.targetProgress
+    : nextProgress <= unfoldState.targetProgress;
+
+  unfoldState.progress = didReachTarget
+    ? unfoldState.targetProgress
+    : nextProgress;
+
+  activeUnfoldController.setProgress(unfoldState.progress);
+
+  if (didReachTarget) {
+    unfoldState.isPlaying = false;
+  }
+
+  updateUnfoldUiState();
+}
+
+/**
+ * Підлаштовує вигляд граней розгортки під активні режими подачі.
+ */
+function applyUnfoldRenderStyle() {
+  if (!activeUnfoldController) {
+    return;
+  }
+
+  const showWireframe = wireframeToggle.checked && !mathModeToggle.checked;
+  const isMathMode = mathModeToggle.checked;
+  const baseColor = new THREE.Color(0xc58f66);
+
+  activeUnfoldController.faces.forEach((face) => {
+    face.material.color.copy(isMathMode ? mathStyle.faceColor : baseColor);
+    face.material.transparent = true;
+    face.material.opacity = showWireframe ? 0.98 : isMathMode ? mathStyle.faceOpacity : 0.92;
+    face.material.wireframe = showWireframe;
+    face.edgeLines.visible = !showWireframe;
+    face.edgeMaterial.color.set(isMathMode ? mathStyle.visibleEdgeColor : 0x6c4021);
+    face.edgeMaterial.opacity = isMathMode ? 0.98 : 0.84;
+  });
+}
+
+/**
+ * Синхронізує доступність кнопок і стан повзунка розгортки.
+ */
+function updateUnfoldUiState() {
+  const isSupported = Boolean(activeUnfoldController);
+  const canInteract = isSupported && unfoldState.enabled;
+
+  unfoldModeToggle.disabled = !isSupported;
+  unfoldModeToggle.checked = canInteract;
+  unfoldPlayButton.disabled = !canInteract;
+  unfoldProgressSlider.disabled = !canInteract;
+  unfoldProgressSlider.value = `${Math.round(unfoldState.progress * 100)}`;
+
+  if (!isSupported) {
+    unfoldPlayButton.textContent = "Недоступно";
+    return;
+  }
+
+  if (!unfoldState.enabled) {
+    unfoldPlayButton.textContent = "Розгорнути";
+    return;
+  }
+
+  if (unfoldState.isPlaying) {
+    unfoldPlayButton.textContent = "Пауза";
+    return;
+  }
+
+  unfoldPlayButton.textContent = unfoldState.progress >= 0.999
+    ? "Згорнути"
+    : "Розгорнути";
+}
+
+/**
+ * Будує контролер розгортки для конкретного типу фігури.
+ */
+function buildUnfoldController(unfoldType, modelRoot) {
+  const bounds = new THREE.Box3().setFromObject(modelRoot);
+  const size = bounds.getSize(new THREE.Vector3());
+
+  if (unfoldType === "cube") {
+    return buildCubeUnfoldController(size);
+  }
+
+  if (unfoldType === "square-pyramid") {
+    return buildSquarePyramidUnfoldController(size);
+  }
+
+  return null;
+}
+
+/**
+ * Створює розгортку куба у вигляді хреста на площині.
+ */
+function buildCubeUnfoldController(size) {
+  const side = Math.max(size.x, size.y, size.z, 1);
+  const groundTransform = createFaceTransform(
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(1, 0, 0),
+    new THREE.Vector3(0, 0, -1),
+  );
+  const faceDefinitions = [
+    {
+      geometry: new THREE.PlaneGeometry(side, side),
+      folded: groundTransform,
+      flat: groundTransform,
+    },
+    {
+      geometry: new THREE.PlaneGeometry(side, side),
+      folded: createFaceTransform(
+        new THREE.Vector3(0, side, 0),
+        new THREE.Vector3(1, 0, 0),
+        new THREE.Vector3(0, 0, 1),
+      ),
+      flat: {
+        position: new THREE.Vector3(0, 0, -2 * side),
+        quaternion: groundTransform.quaternion.clone(),
+      },
+    },
+    {
+      geometry: new THREE.PlaneGeometry(side, side),
+      folded: createFaceTransform(
+        new THREE.Vector3(0, side / 2, side / 2),
+        new THREE.Vector3(1, 0, 0),
+        new THREE.Vector3(0, 1, 0),
+      ),
+      flat: {
+        position: new THREE.Vector3(0, 0, side),
+        quaternion: groundTransform.quaternion.clone(),
+      },
+    },
+    {
+      geometry: new THREE.PlaneGeometry(side, side),
+      folded: createFaceTransform(
+        new THREE.Vector3(0, side / 2, -side / 2),
+        new THREE.Vector3(-1, 0, 0),
+        new THREE.Vector3(0, 1, 0),
+      ),
+      flat: {
+        position: new THREE.Vector3(0, 0, -side),
+        quaternion: groundTransform.quaternion.clone(),
+      },
+    },
+    {
+      geometry: new THREE.PlaneGeometry(side, side),
+      folded: createFaceTransform(
+        new THREE.Vector3(-side / 2, side / 2, 0),
+        new THREE.Vector3(0, 0, 1),
+        new THREE.Vector3(0, 1, 0),
+      ),
+      flat: {
+        position: new THREE.Vector3(-side, 0, 0),
+        quaternion: groundTransform.quaternion.clone(),
+      },
+    },
+    {
+      geometry: new THREE.PlaneGeometry(side, side),
+      folded: createFaceTransform(
+        new THREE.Vector3(side / 2, side / 2, 0),
+        new THREE.Vector3(0, 0, -1),
+        new THREE.Vector3(0, 1, 0),
+      ),
+      flat: {
+        position: new THREE.Vector3(side, 0, 0),
+        quaternion: groundTransform.quaternion.clone(),
+      },
+    },
+  ];
+
+  return createUnfoldControllerFromFaces(faceDefinitions);
+}
+
+/**
+ * Створює розгортку квадратної піраміди: основа плюс чотири трикутні грані.
+ */
+function buildSquarePyramidUnfoldController(size) {
+  const baseSide = Math.max(size.x, size.z, 1);
+  const height = Math.max(size.y, baseSide * 0.6);
+  const slantHeight = Math.hypot(baseSide / 2, height);
+  const groundTransform = createFaceTransform(
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(1, 0, 0),
+    new THREE.Vector3(0, 0, -1),
+  );
+  const faceDefinitions = [
+    {
+      geometry: new THREE.PlaneGeometry(baseSide, baseSide),
+      folded: groundTransform,
+      flat: groundTransform,
+    },
+    {
+      geometry: createTriangleFaceGeometry(baseSide, slantHeight),
+      folded: createFaceTransform(
+        new THREE.Vector3(0, 0, baseSide / 2),
+        new THREE.Vector3(1, 0, 0),
+        new THREE.Vector3(0, height, -baseSide / 2),
+      ),
+      flat: createFaceTransform(
+        new THREE.Vector3(0, 0, baseSide / 2),
+        new THREE.Vector3(1, 0, 0),
+        new THREE.Vector3(0, 0, 1),
+      ),
+    },
+    {
+      geometry: createTriangleFaceGeometry(baseSide, slantHeight),
+      folded: createFaceTransform(
+        new THREE.Vector3(0, 0, -baseSide / 2),
+        new THREE.Vector3(1, 0, 0),
+        new THREE.Vector3(0, height, baseSide / 2),
+      ),
+      flat: createFaceTransform(
+        new THREE.Vector3(0, 0, -baseSide / 2),
+        new THREE.Vector3(1, 0, 0),
+        new THREE.Vector3(0, 0, -1),
+      ),
+    },
+    {
+      geometry: createTriangleFaceGeometry(baseSide, slantHeight),
+      folded: createFaceTransform(
+        new THREE.Vector3(-baseSide / 2, 0, 0),
+        new THREE.Vector3(0, 0, 1),
+        new THREE.Vector3(baseSide / 2, height, 0),
+      ),
+      flat: createFaceTransform(
+        new THREE.Vector3(-baseSide / 2, 0, 0),
+        new THREE.Vector3(0, 0, 1),
+        new THREE.Vector3(-1, 0, 0),
+      ),
+    },
+    {
+      geometry: createTriangleFaceGeometry(baseSide, slantHeight),
+      folded: createFaceTransform(
+        new THREE.Vector3(baseSide / 2, 0, 0),
+        new THREE.Vector3(0, 0, 1),
+        new THREE.Vector3(-baseSide / 2, height, 0),
+      ),
+      flat: createFaceTransform(
+        new THREE.Vector3(baseSide / 2, 0, 0),
+        new THREE.Vector3(0, 0, 1),
+        new THREE.Vector3(1, 0, 0),
+      ),
+    },
+  ];
+
+  return createUnfoldControllerFromFaces(faceDefinitions);
+}
+
+/**
+ * Створює універсальний контролер для набору граней із двома наборами трансформів.
+ */
+function createUnfoldControllerFromFaces(faceDefinitions) {
+  const group = new THREE.Group();
+  group.name = "unfoldGroup";
+  const faces = faceDefinitions.map((definition) => {
+    const face = createUnfoldFace(definition.geometry);
+    face.folded = definition.folded;
+    face.flat = definition.flat;
+    group.add(face.mesh);
+    return face;
+  });
+
+  const setProgress = (progress) => {
+    faces.forEach((face) => {
+      face.mesh.position.copy(face.folded.position).lerp(face.flat.position, progress);
+      face.mesh.quaternion.copy(face.folded.quaternion).slerp(face.flat.quaternion, progress);
+    });
+    group.updateMatrixWorld(true);
+  };
+
+  setProgress(0);
+  const foldedBounds = new THREE.Box3().setFromObject(group);
+  setProgress(1);
+  const flatBounds = new THREE.Box3().setFromObject(group);
+  setProgress(unfoldState.progress);
+
+  return {
+    group,
+    faces,
+    maxBounds: foldedBounds.union(flatBounds),
+    setProgress,
+    dispose() {
+      faces.forEach((face) => {
+        face.edgeLines.geometry.dispose();
+        face.edgeMaterial.dispose();
+        face.mesh.geometry.dispose();
+        face.material.dispose();
+      });
+    },
+  };
+}
+
+/**
+ * Створює одну грань розгортки з окремою заливкою та контурами.
+ */
+function createUnfoldFace(geometry) {
+  geometry.computeVertexNormals();
+
+  const material = new THREE.MeshPhongMaterial({
+    color: 0xc58f66,
+    transparent: true,
+    opacity: 0.92,
+    side: THREE.DoubleSide,
+    polygonOffset: true,
+    polygonOffsetFactor: 1,
+    polygonOffsetUnits: 1,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  const edgeMaterial = new THREE.LineBasicMaterial({
+    color: 0x6c4021,
+    transparent: true,
+    opacity: 0.84,
+  });
+  const edgeLines = new THREE.LineSegments(new THREE.EdgesGeometry(geometry), edgeMaterial);
+  edgeLines.renderOrder = 2;
+  mesh.add(edgeLines);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+
+  return {
+    mesh,
+    material,
+    edgeLines,
+    edgeMaterial,
+  };
+}
+
+/**
+ * Створює трикутну грань для піраміди з базовою лінією вздовж локальної осі X.
+ */
+function createTriangleFaceGeometry(baseWidth, height) {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(
+      [
+        -baseWidth / 2, 0, 0,
+        baseWidth / 2, 0, 0,
+        0, height, 0,
+      ],
+      3,
+    ),
+  );
+  geometry.setIndex([0, 1, 2]);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+/**
+ * Будує позицію та орієнтацію грані за локальними напрямками її осей.
+ */
+function createFaceTransform(position, xDirection, yDirection) {
+  const xAxis = xDirection.clone().normalize();
+  const yAxis = yDirection
+    .clone()
+    .sub(xAxis.clone().multiplyScalar(yDirection.dot(xAxis)))
+    .normalize();
+  const zAxis = new THREE.Vector3().crossVectors(xAxis, yAxis).normalize();
+  const matrix = new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis);
+
+  return {
+    position: position.clone(),
+    quaternion: new THREE.Quaternion().setFromRotationMatrix(matrix),
+  };
+}
+
 function applyWireframeMode(isWireframe) {
   if (!activeModelRoot) {
     return;
@@ -1318,6 +1907,8 @@ function createSessionFileKey(file) {
  * Коректно звільняє ресурси попередньої моделі, щоб не накопичувати пам'ять.
  */
 function disposeActiveModel() {
+  disposeUnfoldController();
+
   if (!activeModelRoot) {
     return;
   }
@@ -1361,6 +1952,7 @@ function disposeActiveModel() {
   });
 
   activeModelRoot = null;
+  updateUnfoldUiState();
 }
 
 /**
@@ -1519,6 +2111,8 @@ function onPointerMove(event) {
  */
 function animate() {
   requestAnimationFrame(animate);
+  const deltaSeconds = animationClock.getDelta();
+  updateUnfoldAnimation(deltaSeconds);
   controls.update();
   gizmoRoot.quaternion.copy(camera.quaternion).invert();
   renderer.setViewport(0, 0, renderer.domElement.width, renderer.domElement.height);
