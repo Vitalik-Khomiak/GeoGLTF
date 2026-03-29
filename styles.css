@@ -482,11 +482,11 @@ kbd {
   border-radius: 22px;
   background:
     radial-gradient(circle at top, rgba(255, 255, 255, 0.18), transparent 52%),
-    linear-gradient(180deg, rgba(17, 31, 52, 0.92), rgba(30, 47, 71, 0.88));
-  border: 1px solid rgba(255, 196, 72, 0.28);
+    linear-gradient(180deg, rgba(17, 31, 52, 0.18), rgba(30, 47, 71, 0.14));
+  border: 1px solid rgba(19, 34, 56, 0.22);
   box-shadow:
-    0 14px 28px rgba(9, 16, 27, 0.32),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    0 14px 28px rgba(9, 16, 27, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
   backdrop-filter: blur(8px);
   pointer-events: none;
 }
