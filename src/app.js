@@ -1375,80 +1375,91 @@ function buildUnfoldController(unfoldType, modelRoot) {
  */
 function buildCubeUnfoldController(size) {
   const side = Math.max(size.x, size.y, size.z, 1);
-  const groundTransform = createFaceTransform(
-    new THREE.Vector3(0, 0, 0),
-    new THREE.Vector3(1, 0, 0),
-    new THREE.Vector3(0, 0, -1),
-  );
-  const faceDefinitions = [
-    {
-      geometry: new THREE.PlaneGeometry(side, side),
-      folded: groundTransform,
-      flat: groundTransform,
-    },
-    {
-      geometry: new THREE.PlaneGeometry(side, side),
-      folded: createFaceTransform(
-        new THREE.Vector3(0, side, 0),
-        new THREE.Vector3(1, 0, 0),
-        new THREE.Vector3(0, 0, 1),
-      ),
-      flat: {
-        position: new THREE.Vector3(0, 0, -2 * side),
-        quaternion: groundTransform.quaternion.clone(),
-      },
-    },
-    {
-      geometry: new THREE.PlaneGeometry(side, side),
-      folded: createFaceTransform(
-        new THREE.Vector3(0, side / 2, side / 2),
-        new THREE.Vector3(1, 0, 0),
-        new THREE.Vector3(0, 1, 0),
-      ),
-      flat: {
-        position: new THREE.Vector3(0, 0, side),
-        quaternion: groundTransform.quaternion.clone(),
-      },
-    },
-    {
-      geometry: new THREE.PlaneGeometry(side, side),
-      folded: createFaceTransform(
-        new THREE.Vector3(0, side / 2, -side / 2),
-        new THREE.Vector3(-1, 0, 0),
-        new THREE.Vector3(0, 1, 0),
-      ),
-      flat: {
-        position: new THREE.Vector3(0, 0, -side),
-        quaternion: groundTransform.quaternion.clone(),
-      },
-    },
-    {
-      geometry: new THREE.PlaneGeometry(side, side),
-      folded: createFaceTransform(
-        new THREE.Vector3(-side / 2, side / 2, 0),
-        new THREE.Vector3(0, 0, 1),
-        new THREE.Vector3(0, 1, 0),
-      ),
-      flat: {
-        position: new THREE.Vector3(-side, 0, 0),
-        quaternion: groundTransform.quaternion.clone(),
-      },
-    },
-    {
-      geometry: new THREE.PlaneGeometry(side, side),
-      folded: createFaceTransform(
-        new THREE.Vector3(side / 2, side / 2, 0),
-        new THREE.Vector3(0, 0, -1),
-        new THREE.Vector3(0, 1, 0),
-      ),
-      flat: {
-        position: new THREE.Vector3(side, 0, 0),
-        quaternion: groundTransform.quaternion.clone(),
-      },
-    },
-  ];
+  const group = new THREE.Group();
+  group.name = "unfoldGroup";
+  const faces = [];
+  const createSquareFace = () => {
+    const face = createUnfoldFace(new THREE.PlaneGeometry(side, side));
+    faces.push(face);
+    return face;
+  };
 
-  return createUnfoldControllerFromFaces(faceDefinitions);
+  const baseFace = createSquareFace();
+  baseFace.mesh.rotation.x = -Math.PI / 2;
+  group.add(baseFace.mesh);
+
+  const northPivot = new THREE.Group();
+  northPivot.position.set(0, 0, -side / 2);
+  group.add(northPivot);
+
+  const northFace = createSquareFace();
+  northFace.mesh.position.set(0, side / 2, 0);
+  northPivot.add(northFace.mesh);
+
+  const topPivot = new THREE.Group();
+  topPivot.position.set(0, side / 2, 0);
+  northFace.mesh.add(topPivot);
+
+  const topFace = createSquareFace();
+  topFace.mesh.position.set(0, side / 2, 0);
+  topPivot.add(topFace.mesh);
+
+  const southPivot = new THREE.Group();
+  southPivot.position.set(0, 0, side / 2);
+  group.add(southPivot);
+
+  const southFace = createSquareFace();
+  southFace.mesh.position.set(0, side / 2, 0);
+  southFace.mesh.rotation.y = Math.PI;
+  southPivot.add(southFace.mesh);
+
+  const westPivot = new THREE.Group();
+  westPivot.position.set(-side / 2, 0, 0);
+  group.add(westPivot);
+
+  const westFace = createSquareFace();
+  westFace.mesh.position.set(0, side / 2, 0);
+  westFace.mesh.rotation.y = -Math.PI / 2;
+  westPivot.add(westFace.mesh);
+
+  const eastPivot = new THREE.Group();
+  eastPivot.position.set(side / 2, 0, 0);
+  group.add(eastPivot);
+
+  const eastFace = createSquareFace();
+  eastFace.mesh.position.set(0, side / 2, 0);
+  eastFace.mesh.rotation.y = Math.PI / 2;
+  eastPivot.add(eastFace.mesh);
+
+  const setProgress = (progress) => {
+    northPivot.rotation.x = -Math.PI / 2 * progress;
+    southPivot.rotation.x = Math.PI / 2 * progress;
+    westPivot.rotation.z = Math.PI / 2 * progress;
+    eastPivot.rotation.z = -Math.PI / 2 * progress;
+    topPivot.rotation.x = Math.PI / 2 * (1 - progress);
+    group.updateMatrixWorld(true);
+  };
+
+  setProgress(0);
+  const foldedBounds = new THREE.Box3().setFromObject(group);
+  setProgress(1);
+  const flatBounds = new THREE.Box3().setFromObject(group);
+  setProgress(unfoldState.progress);
+
+  return {
+    group,
+    faces,
+    maxBounds: foldedBounds.union(flatBounds),
+    setProgress,
+    dispose() {
+      faces.forEach((face) => {
+        face.edgeLines.geometry.dispose();
+        face.edgeMaterial.dispose();
+        face.mesh.geometry.dispose();
+        face.material.dispose();
+      });
+    },
+  };
 }
 
 /**
