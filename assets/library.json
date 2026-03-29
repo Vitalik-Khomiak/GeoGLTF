@@ -23,6 +23,12 @@
       "description": "Модель для теми многогранників і висоти",
       "file": "./assets/models/Piramide.glb",
       "sizeLabel": "1.30 KB"
+    },
+    {
+      "title": "Сфера",
+      "description": "Модель для аналізу сфери, радіуса та перерізів",
+      "file": "./assets/models/sphere.glb",
+      "sizeLabel": "132 B"
     }
   ]
 }

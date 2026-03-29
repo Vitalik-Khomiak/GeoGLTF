@@ -323,6 +323,7 @@ function getLocalFallbackDate() {
  */
 function bindEvents() {
   window.addEventListener("resize", resizeRenderer);
+  window.addEventListener("focus", loadPublishedLibrary);
   window.addEventListener("orientationchange", () => {
     syncViewerLayout({ reframeModel: true, preserveView: true });
   });
@@ -782,6 +783,7 @@ function loadNextAsset() {
 function switchToLibraryMode() {
   appShell.classList.remove("app-mode-viewer");
   appShell.classList.add("app-mode-library");
+  loadPublishedLibrary();
 }
 
 /**
