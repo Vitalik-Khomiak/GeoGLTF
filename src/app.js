@@ -170,26 +170,43 @@ function initializeScene() {
  * Створює компактний навігатор орієнтації, який повторює поворот камери.
  */
 function initializeViewGizmo() {
-  gizmoCamera.position.set(0, 0, 4.2);
+  gizmoCamera.position.set(0, 0, 4.8);
 
-  const ambientLight = new THREE.AmbientLight(0xffffff, 1.3);
+  const ambientLight = new THREE.AmbientLight(0xffffff, 1.25);
   gizmoScene.add(ambientLight);
 
-  const directionalLight = new THREE.DirectionalLight(0xffffff, 1.05);
-  directionalLight.position.set(2, 3, 4);
-  gizmoScene.add(directionalLight);
+  const keyLight = new THREE.DirectionalLight(0xffffff, 1.2);
+  keyLight.position.set(2.8, 3.8, 4.5);
+  gizmoScene.add(keyLight);
+
+  const fillLight = new THREE.DirectionalLight(0xdce7ff, 0.7);
+  fillLight.position.set(-3.2, -1.4, 2.2);
+  gizmoScene.add(fillLight);
 
   const centerCube = new THREE.Mesh(
-    new THREE.BoxGeometry(0.34, 0.34, 0.34),
+    new THREE.BoxGeometry(0.42, 0.42, 0.42),
     new THREE.MeshPhongMaterial({
-      color: 0xf5f7fb,
+      color: 0xffffff,
       transparent: true,
-      opacity: 0.98,
-      shininess: 40,
+      opacity: 0.78,
+      shininess: 80,
+      specular: new THREE.Color(0xffffff),
     }),
   );
-  centerCube.rotation.set(Math.PI / 8, Math.PI / 4, 0);
+  centerCube.rotation.set(Math.PI / 6.5, Math.PI / 4, Math.PI / 30);
   gizmoRoot.add(centerCube);
+
+  const core = new THREE.Mesh(
+    new THREE.SphereGeometry(0.08, 20, 20),
+    new THREE.MeshPhongMaterial({
+      color: 0xd8d44f,
+      transparent: true,
+      opacity: 0.95,
+      shininess: 90,
+      specular: new THREE.Color(0xfff7b3),
+    }),
+  );
+  gizmoRoot.add(core);
 
   gizmoRoot.add(createGizmoAxis("x", axisColors.x, new THREE.Vector3(1, 0, 0)));
   gizmoRoot.add(createGizmoAxis("y", axisColors.y, new THREE.Vector3(0, 1, 0)));
@@ -205,18 +222,28 @@ function createGizmoAxis(label, color, direction) {
   const normalizedDirection = direction.clone().normalize();
 
   const shaft = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.042, 0.042, 0.82, 20),
-    new THREE.MeshPhongMaterial({ color, toneMapped: false, shininess: 30 }),
+    new THREE.CylinderGeometry(0.04, 0.054, 1.02, 24),
+    new THREE.MeshPhongMaterial({
+      color,
+      toneMapped: false,
+      shininess: 70,
+      specular: new THREE.Color(0xffffff),
+    }),
   );
-  shaft.position.copy(normalizedDirection).multiplyScalar(0.48);
+  shaft.position.copy(normalizedDirection).multiplyScalar(0.56);
   shaft.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normalizedDirection);
   axisGroup.add(shaft);
 
   const tip = new THREE.Mesh(
-    new THREE.ConeGeometry(0.12, 0.26, 24),
-    new THREE.MeshPhongMaterial({ color, toneMapped: false, shininess: 30 }),
+    new THREE.ConeGeometry(0.14, 0.34, 28),
+    new THREE.MeshPhongMaterial({
+      color,
+      toneMapped: false,
+      shininess: 90,
+      specular: new THREE.Color(0xffffff),
+    }),
   );
-  tip.position.copy(normalizedDirection).multiplyScalar(1.02);
+  tip.position.copy(normalizedDirection).multiplyScalar(1.22);
   tip.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normalizedDirection);
   axisGroup.add(tip);
 
@@ -227,8 +254,8 @@ function createGizmoAxis(label, color, direction) {
       depthTest: false,
     }),
   );
-  labelSprite.scale.set(0.52, 0.52, 0.52);
-  labelSprite.position.copy(normalizedDirection).multiplyScalar(1.42);
+  labelSprite.scale.set(0.42, 0.42, 0.42);
+  labelSprite.position.copy(normalizedDirection).multiplyScalar(1.54);
   axisGroup.add(labelSprite);
 
   return axisGroup;
@@ -246,14 +273,14 @@ function createAxisLabelTexture(text, color) {
 
   context.clearRect(0, 0, size, size);
   context.beginPath();
-  context.arc(size / 2, size / 2, 38, 0, Math.PI * 2);
-  context.fillStyle = "#ffffff";
+  context.arc(size / 2, size / 2, 30, 0, Math.PI * 2);
+  context.fillStyle = "rgba(255, 255, 255, 0.95)";
   context.fill();
-  context.lineWidth = 8;
+  context.lineWidth = 5;
   context.strokeStyle = `#${color.toString(16).padStart(6, "0")}`;
   context.stroke();
-  context.fillStyle = "#132238";
-  context.font = "bold 56px Trebuchet MS";
+  context.fillStyle = "#17304c";
+  context.font = "bold 42px Trebuchet MS";
   context.textAlign = "center";
   context.textBaseline = "middle";
   context.fillText(text, size / 2, size / 2 + 1);
@@ -268,7 +295,6 @@ function createAxisLabelTexture(text, color) {
  */
 function createSceneAxesHelper(length) {
   const axisGroup = new THREE.Group();
-  const origin = new THREE.Vector3(0, 0, 0);
   const definitions = [
     { direction: new THREE.Vector3(1, 0, 0), color: axisColors.x },
     { direction: new THREE.Vector3(0, 1, 0), color: axisColors.y },
@@ -276,10 +302,19 @@ function createSceneAxesHelper(length) {
   ];
 
   definitions.forEach(({ direction, color }) => {
-    const arrow = new THREE.ArrowHelper(direction, origin, length, color, length * 0.16, length * 0.09);
-    arrow.line.material.toneMapped = false;
-    arrow.cone.material.toneMapped = false;
-    axisGroup.add(arrow);
+    const line = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, 0, 0),
+        direction.clone().multiplyScalar(length),
+      ]),
+      new THREE.LineBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0.95,
+        toneMapped: false,
+      }),
+    );
+    axisGroup.add(line);
   });
 
   return axisGroup;
