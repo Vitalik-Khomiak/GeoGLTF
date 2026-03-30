@@ -179,6 +179,18 @@ function initializeViewGizmo() {
   directionalLight.position.set(2, 3, 4);
   gizmoScene.add(directionalLight);
 
+  const centerCube = new THREE.Mesh(
+    new THREE.BoxGeometry(0.34, 0.34, 0.34),
+    new THREE.MeshPhongMaterial({
+      color: 0xf5f7fb,
+      transparent: true,
+      opacity: 0.98,
+      shininess: 40,
+    }),
+  );
+  centerCube.rotation.set(Math.PI / 8, Math.PI / 4, 0);
+  gizmoRoot.add(centerCube);
+
   gizmoRoot.add(createGizmoAxis("x", axisColors.x, new THREE.Vector3(1, 0, 0)));
   gizmoRoot.add(createGizmoAxis("y", axisColors.y, new THREE.Vector3(0, 1, 0)));
   gizmoRoot.add(createGizmoAxis("z", axisColors.z, new THREE.Vector3(0, 0, 1)));
@@ -190,21 +202,23 @@ function initializeViewGizmo() {
  */
 function createGizmoAxis(label, color, direction) {
   const axisGroup = new THREE.Group();
+  const normalizedDirection = direction.clone().normalize();
 
   const shaft = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.04, 0.04, 0.95, 18),
-    new THREE.MeshBasicMaterial({ color, toneMapped: false }),
+    new THREE.CylinderGeometry(0.042, 0.042, 0.82, 20),
+    new THREE.MeshPhongMaterial({ color, toneMapped: false, shininess: 30 }),
   );
-  shaft.position.copy(direction).multiplyScalar(0.47);
-  shaft.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.clone().normalize());
+  shaft.position.copy(normalizedDirection).multiplyScalar(0.48);
+  shaft.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normalizedDirection);
   axisGroup.add(shaft);
 
-  const sphere = new THREE.Mesh(
-    new THREE.SphereGeometry(0.17, 20, 20),
-    new THREE.MeshBasicMaterial({ color, toneMapped: false }),
+  const tip = new THREE.Mesh(
+    new THREE.ConeGeometry(0.12, 0.26, 24),
+    new THREE.MeshPhongMaterial({ color, toneMapped: false, shininess: 30 }),
   );
-  sphere.position.copy(direction).multiplyScalar(1.02);
-  axisGroup.add(sphere);
+  tip.position.copy(normalizedDirection).multiplyScalar(1.02);
+  tip.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normalizedDirection);
+  axisGroup.add(tip);
 
   const labelSprite = new THREE.Sprite(
     new THREE.SpriteMaterial({
@@ -213,8 +227,8 @@ function createGizmoAxis(label, color, direction) {
       depthTest: false,
     }),
   );
-  labelSprite.scale.set(0.58, 0.58, 0.58);
-  labelSprite.position.copy(direction).multiplyScalar(1.46);
+  labelSprite.scale.set(0.52, 0.52, 0.52);
+  labelSprite.position.copy(normalizedDirection).multiplyScalar(1.42);
   axisGroup.add(labelSprite);
 
   return axisGroup;
