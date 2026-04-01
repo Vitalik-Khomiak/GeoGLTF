@@ -23,6 +23,8 @@ html,
 body {
   margin: 0;
   min-height: 100%;
+  width: 100%;
+  overflow-x: hidden;
 }
 
 body {
@@ -42,8 +44,11 @@ kbd {
   display: grid;
   grid-template-columns: 360px minmax(0, 1fr);
   min-height: 100vh;
+  width: 100%;
+  max-width: 100%;
   gap: 18px;
   padding: 18px;
+  overflow-x: clip;
 }
 
 .app-shell.app-mode-library {
@@ -322,6 +327,7 @@ kbd {
   grid-template-rows: auto auto 1fr;
   width: 100%;
   min-width: 0;
+  overflow: hidden;
   background: rgba(255, 255, 255, 0.68);
   border: 1px solid rgba(255, 255, 255, 0.6);
 }
@@ -397,6 +403,7 @@ kbd {
   padding: 12px 18px 14px;
   background: rgba(255, 255, 255, 0.78);
   border-bottom: 1px solid rgba(19, 34, 56, 0.08);
+  overscroll-behavior-x: contain;
 }
 
 .quick-action-button {
@@ -462,7 +469,9 @@ kbd {
   position: relative;
   min-height: 520px;
   min-width: 0;
+  width: 100%;
   height: calc(100vh - 140px);
+  overflow: hidden;
   background:
     radial-gradient(circle at top, rgba(255, 255, 255, 0.38), transparent 24%),
     linear-gradient(180deg, rgba(112, 153, 211, 0.22), rgba(19, 34, 56, 0.08));
@@ -477,16 +486,16 @@ kbd {
   position: absolute;
   top: 16px;
   right: 16px;
-  width: 112px;
-  height: 112px;
-  border-radius: 22px;
+  width: 124px;
+  height: 124px;
+  border-radius: 26px;
   background:
-    radial-gradient(circle at top, rgba(255, 255, 255, 0.7), transparent 58%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.68), rgba(229, 235, 243, 0.58));
-  border: 1px solid rgba(120, 138, 161, 0.44);
+    radial-gradient(circle at top, rgba(255, 255, 255, 0.92), transparent 56%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(233, 239, 247, 0.74));
+  border: 1px solid rgba(136, 153, 176, 0.52);
   box-shadow:
-    0 14px 28px rgba(9, 16, 27, 0.16),
-    inset 0 1px 0 rgba(255, 255, 255, 0.78);
+    0 18px 34px rgba(9, 16, 27, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
   pointer-events: none;
 }
 
@@ -581,6 +590,8 @@ kbd {
   .app-shell.app-mode-viewer {
     min-height: 100dvh;
     align-items: stretch;
+    padding: 0;
+    gap: 0;
   }
 
   .control-panel {
@@ -607,21 +618,27 @@ kbd {
   }
 
   .viewer-panel {
+    width: 100%;
+    max-width: 100%;
     min-height: calc(100dvh - 24px);
     grid-template-rows: auto auto minmax(0, 1fr);
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
   }
 
   .viewer-canvas-wrapper {
     min-height: 0;
+    width: 100%;
     height: auto;
   }
 
   .view-gizmo {
     top: 10px;
     right: 10px;
-    width: 90px;
-    height: 90px;
-    border-radius: 16px;
+    width: 100px;
+    height: 100px;
+    border-radius: 20px;
   }
 
   .viewer-toolbar {
@@ -673,6 +690,7 @@ kbd {
     flex-wrap: nowrap;
     overflow-x: auto;
     overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
     gap: 8px;
     padding: 10px 12px;

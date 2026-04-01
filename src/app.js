@@ -28,6 +28,7 @@ const nextModelButton = document.querySelector("#nextModelButton");
 const viewerTitle = document.querySelector("#viewerTitle");
 const projectUpdated = document.querySelector("#projectUpdated");
 const viewerPanel = document.querySelector(".viewer-panel");
+const MOBILE_VIEWPORT_QUERY = "(max-width: 720px)";
 
 const scene = new THREE.Scene();
 const renderer = createRenderer(canvas);
@@ -84,6 +85,8 @@ const publishedAssets = [];
 const sessionAssets = [];
 let activeAsset = null;
 let activeUnfoldController = null;
+let viewportResizeObserver = null;
+let viewportResizeObserverTimeoutId = 0;
 const unfoldState = {
   enabled: false,
   progress: 0,
@@ -407,6 +410,9 @@ function bindEvents() {
     window.visualViewport.addEventListener("resize", () => {
       syncViewerLayout({ reframeModel: true, preserveView: true });
     });
+    window.visualViewport.addEventListener("scroll", () => {
+      syncViewerLayout({ reframeModel: true, preserveView: true });
+    });
   }
 
   fileInput.addEventListener("change", onFileInputChange);
@@ -464,6 +470,7 @@ function bindEvents() {
   syncRenderModeControls();
   restoreSceneHintState();
   updateUnfoldUiState();
+  bindViewportResizeObserver();
 }
 
 /**
@@ -863,6 +870,7 @@ function loadNextAsset() {
 function switchToLibraryMode() {
   appShell.classList.remove("app-mode-viewer");
   appShell.classList.add("app-mode-library");
+  syncMobileViewportHeight();
   loadPublishedLibrary();
 }
 
@@ -2112,8 +2120,8 @@ function resizeRenderer() {
 
   const wrapper = dropZone;
   const bounds = wrapper.getBoundingClientRect();
-  const width = Math.round(bounds.width);
-  const height = Math.round(bounds.height);
+  const width = Math.max(Math.round(bounds.width), Math.round(wrapper.clientWidth));
+  const height = Math.max(Math.round(bounds.height), Math.round(wrapper.clientHeight));
 
   if (!width || !height) {
     return;
@@ -2135,24 +2143,62 @@ function resizeRenderer() {
 }
 
 /**
+ * Підключає ResizeObserver до viewer-контейнерів, щоб мобільний canvas підлаштовувався
+ * під фактичний розмір після появи sticky-панелей та змін visible viewport.
+ */
+function bindViewportResizeObserver() {
+  if (typeof ResizeObserver !== "function" || viewportResizeObserver) {
+    return;
+  }
+
+  viewportResizeObserver = new ResizeObserver(() => {
+    window.clearTimeout(viewportResizeObserverTimeoutId);
+    viewportResizeObserverTimeoutId = window.setTimeout(() => {
+      if (!appShell.classList.contains("app-mode-viewer")) {
+        return;
+      }
+
+      syncViewerLayout({
+        reframeModel: Boolean(activeModelRoot),
+        preserveView: true,
+      });
+    }, 32);
+  });
+
+  [viewerPanel, dropZone].forEach((element) => {
+    if (element) {
+      viewportResizeObserver.observe(element);
+    }
+  });
+}
+
+/**
  * На телефоні підлаштовує висоту canvas під реальну видиму частину екрана після всіх панелей.
  */
 function syncMobileViewportHeight() {
-  const isMobileViewport = window.matchMedia("(max-width: 720px)").matches;
+  const isMobileViewport = window.matchMedia(MOBILE_VIEWPORT_QUERY).matches;
   const isViewerMode = appShell.classList.contains("app-mode-viewer");
 
   if (!isMobileViewport || !isViewerMode) {
     dropZone.style.height = "";
+    dropZone.style.minHeight = "";
     viewerPanel.style.minHeight = "";
+    viewerPanel.style.height = "";
     return;
   }
 
-  const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+  const visualViewport = window.visualViewport;
+  const viewportHeight = visualViewport?.height ?? window.innerHeight;
+  const viewportOffsetTop = visualViewport?.offsetTop ?? 0;
   const panelBounds = viewerPanel.getBoundingClientRect();
   const wrapperBounds = dropZone.getBoundingClientRect();
-  const bottomInset = 12;
+  const viewportBottomInset = Math.max(
+    0,
+    Math.round(window.innerHeight - viewportHeight - viewportOffsetTop),
+  );
+  const bottomInset = 12 + viewportBottomInset;
   const availableHeight = Math.max(
-    280,
+    320,
     Math.floor(viewportHeight - wrapperBounds.top - bottomInset),
   );
   const panelHeight = Math.max(
@@ -2161,6 +2207,8 @@ function syncMobileViewportHeight() {
   );
 
   viewerPanel.style.minHeight = `${panelHeight}px`;
+  viewerPanel.style.height = `${panelHeight}px`;
+  dropZone.style.minHeight = `${availableHeight}px`;
   dropZone.style.height = `${availableHeight}px`;
 }
 
@@ -2187,6 +2235,14 @@ function syncViewerLayout(options = {}) {
       frameCurrentModel({ preserveView });
     }
   }, 140);
+
+  window.setTimeout(() => {
+    resizeRenderer();
+
+    if (reframeModel && activeModelRoot) {
+      frameCurrentModel({ preserveView });
+    }
+  }, 320);
 }
 
 /**
