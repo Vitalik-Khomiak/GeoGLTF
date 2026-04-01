@@ -708,7 +708,8 @@ async function loadAsset(asset, options = {}) {
 
   try {
     const arrayBuffer = await resolveAssetArrayBuffer(asset);
-    await parseModelBuffer(arrayBuffer, asset, { preserveView });
+    await parseModelBuffer(arrayBuffer, asset);
+    await waitForStableViewport(dropZone);
     syncViewerLayout({ reframeModel: true, preserveView });
   } catch (error) {
     handleLoadError(asset, error);
@@ -1045,9 +1046,7 @@ async function resolveAssetArrayBuffer(asset) {
 /**
  * Парсить буфер моделі та оновлює сцену й статистику після успішного імпорту.
  */
-function parseModelBuffer(arrayBuffer, asset, options = {}) {
-  const { preserveView = false } = options;
-
+function parseModelBuffer(arrayBuffer, asset) {
   return new Promise((resolve, reject) => {
     loader.parse(
       arrayBuffer,
@@ -1066,7 +1065,6 @@ function parseModelBuffer(arrayBuffer, asset, options = {}) {
         applyMathStyleMode(mathModeToggle.checked);
         applyWireframeMode(wireframeToggle.checked);
         applyUnfoldRenderStyle();
-        frameCurrentModel({ preserveView });
 
         const stats = collectModelStats(activeModelRoot);
         updateStats({
@@ -1083,6 +1081,60 @@ function parseModelBuffer(arrayBuffer, asset, options = {}) {
         reject(error);
       },
     );
+  });
+}
+
+/**
+ * Чекає кілька стабільних кадрів поспіль, щоб viewer отримав фінальний розмір
+ * перед першим автоцентруванням камери, особливо на мобільних браузерах.
+ */
+function waitForStableViewport(element, options = {}) {
+  const isMobileViewport = window.matchMedia(MOBILE_VIEWPORT_QUERY).matches;
+  const {
+    stableFrames = isMobileViewport ? 3 : 2,
+    timeoutMs = isMobileViewport ? 900 : 320,
+  } = options;
+
+  if (!element) {
+    return Promise.resolve();
+  }
+
+  syncMobileViewportHeight();
+
+  return new Promise((resolve) => {
+    let lastSignature = "";
+    let stableCount = 0;
+    const startedAt = performance.now();
+
+    const checkSize = () => {
+      const bounds = element.getBoundingClientRect();
+      const signature = [
+        Math.round(bounds.width),
+        Math.round(bounds.height),
+        Math.round(bounds.left),
+        Math.round(bounds.top),
+      ].join(":");
+      const hasUsableSize = bounds.width > 0 && bounds.height > 0;
+
+      if (hasUsableSize && signature === lastSignature) {
+        stableCount += 1;
+      } else {
+        stableCount = 0;
+        lastSignature = signature;
+      }
+
+      if (
+        (hasUsableSize && stableCount >= stableFrames)
+        || performance.now() - startedAt >= timeoutMs
+      ) {
+        resolve();
+        return;
+      }
+
+      requestAnimationFrame(checkSize);
+    };
+
+    requestAnimationFrame(checkSize);
   });
 }
 
