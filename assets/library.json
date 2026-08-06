@@ -2,31 +2,49 @@
   "assets": [
     {
       "title": "Куб",
-      "description": "Базова модель для просторового аналізу",
+      "description": "Базова модель для просторового аналізу: грані, ребра, вершини.",
       "file": "./assets/models/cube.glb",
       "sizeLabel": "1.69 KB"
     },
     {
       "title": "Куб зі зрізом",
-      "description": "Модель для аналізу перерізів та просторового уявлення",
+      "description": "Модель для аналізу перерізів та просторового уявлення.",
       "file": "./assets/models/cube_slice.glb",
       "sizeLabel": "3.05 KB"
     },
     {
-      "title": "Циліндр",
-      "description": "Модель для обертання та аналізу тіл обертання",
-      "file": "./assets/models/Cylynder.glb",
-      "sizeLabel": "4.23 KB"
+      "title": "Трикутна призма",
+      "description": "Многогранник для теми призм: основи, бічні грані, паралельні та мимобіжні ребра.",
+      "file": "./assets/models/prism_tri.glb",
+      "sizeLabel": "0.88 KB"
+    },
+    {
+      "title": "Шестикутна призма",
+      "description": "Правильна призма для аналізу основ, діагоналей і бічної поверхні.",
+      "file": "./assets/models/prism_hex.glb",
+      "sizeLabel": "1.09 KB"
     },
     {
       "title": "Піраміда",
-      "description": "Модель для теми многогранників і висоти",
+      "description": "Модель для теми многогранників і висоти.",
       "file": "./assets/models/Piramide.glb",
       "sizeLabel": "1.30 KB"
     },
     {
+      "title": "Циліндр",
+      "description": "Модель для обертання та аналізу тіл обертання.",
+      "file": "./assets/models/Cylynder.glb",
+      "sizeLabel": "4.23 KB"
+    },
+    {
+      "title": "Конус",
+      "description": "Тіло обертання для аналізу перерізів: коло, еліпс, трикутник через вершину.",
+      "file": "./assets/models/cone.glb",
+      "sizeLabel": "2.44 KB"
+    },
+    {
       "title": "Сфера",
-      "description": "Модель для аналізу сфери, радіуса та перерізів",
+      "description": "Модель для аналізу сфери, радіуса та перерізів.",
       "file": "./assets/models/sphere.glb",
       "sizeLabel": "15.10 KB"
     }
