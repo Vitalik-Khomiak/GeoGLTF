@@ -1,7 +1,7 @@
 /*
  * GeoGLTF Viewer — увесь застосунок в одному ES-модулі.
  * Карта блоків, життєвий цикл моделі та підводні камені: див. ARCHITECTURE.md.
- * Правила внесення змін (кеш SW, TDZ, dispose): див. ../CLAUDE.md.
+ * Правила внесення змін (кеш SW, TDZ, dispose): див. ARCHITECTURE.md, §8.
  */
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
