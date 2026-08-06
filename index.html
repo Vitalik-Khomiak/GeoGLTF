@@ -2,161 +2,227 @@
 <html lang="uk">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>GeoGLTF Viewer</title>
-    <meta
-      name="description"
-      content="Інтерактивний навчальний переглядач 3D-моделей GLB з координатною сіткою та осями."
-    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#0f172a" />
+    <title>GeoGLTF — переглядач 3D-фігур</title>
+    <meta name="description" content="Інтерактивний навчальний переглядач 3D-моделей просторових фігур: обертання, сітка, осі, перерізи та розгортки прямо у браузері." />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./assets/icon.svg" />
+    <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="./styles.css" />
+    <script>
+      /* Сторож запуску: показує зрозумілу підказку, якщо 3D-рушій не завантажився
+         (наприклад, сторінку відкрито як файл або файли ще синхронізуються). */
+      (function () {
+        window.__geogltfReady = false;
+        function showStartupHelp() {
+          if (window.__geogltfReady || document.getElementById("startupHelp")) return;
+          var isFile = location.protocol === "file:";
+          var cmd = "python -m http.server 8000";
+          var el = document.createElement("div");
+          el.id = "startupHelp";
+          el.setAttribute("role", "alertdialog");
+          el.style.cssText =
+            "position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(15,23,42,0.94);font-family:'Segoe UI',system-ui,sans-serif";
+          el.innerHTML =
+            '<div style="max-width:460px;background:#1b2740;border:1px solid #2b3a5c;border-radius:18px;padding:24px 22px;box-shadow:0 18px 50px rgba(0,0,0,0.5);color:#eaf0fb">' +
+            '<div style="font-size:18px;font-weight:800;margin-bottom:10px">GeoGLTF не зміг запуститися</div>' +
+            '<p style="margin:0 0 14px;font-size:14px;line-height:1.55;color:#c7d2e8">' +
+            (isFile
+              ? "Сторінку відкрито як файл (<b>file://</b>). У цьому режимі браузер блокує завантаження 3D-рушія. Запустіть локальний сервер у папці проєкту:"
+              : "Не вдалося завантажити 3D-рушій. Можливо, файли ще синхронізуються (OneDrive) або заблоковано мережу. Спробуйте оновити сторінку за хвилину, або запустіть локальний сервер у папці проєкту:") +
+            "</p>" +
+            '<div style="display:flex;gap:8px;align-items:center;background:#0f172a;border:1px solid #2b3a5c;border-radius:10px;padding:10px 12px;font-family:monospace;font-size:13px"><span style="flex:1;white-space:nowrap;overflow:auto">' +
+            cmd +
+            '</span><button id="shCopy" type="button" style="border:none;background:#3b5bdb;color:#fff;border-radius:8px;padding:7px 11px;font-weight:700;cursor:pointer">Копіювати</button></div>' +
+            '<p style="margin:12px 0 0;font-size:13px;color:#9fb0cf">Потім відкрийте <b>http://localhost:8000</b></p>' +
+            '<button id="shReload" type="button" style="margin-top:16px;width:100%;border:none;background:#10b981;color:#fff;border-radius:10px;padding:12px;font-weight:700;font-size:14px;cursor:pointer">Оновити сторінку</button>' +
+            "</div>";
+          document.body.appendChild(el);
+          var copyBtn = document.getElementById("shCopy");
+          copyBtn.onclick = function () {
+            if (navigator.clipboard) navigator.clipboard.writeText(cmd);
+            copyBtn.textContent = "Скопійовано";
+          };
+          document.getElementById("shReload").onclick = function () {
+            location.reload();
+          };
+        }
+        window.addEventListener("DOMContentLoaded", function () {
+          setTimeout(showStartupHelp, 4500);
+        });
+      })();
+    </script>
   </head>
   <body>
     <div id="appShell" class="app-shell app-mode-library">
+      <!-- ============ ЕКРАН БІБЛІОТЕКИ ============ -->
       <aside class="control-panel">
-        <div class="brand-block">
-          <p class="eyebrow">GLB Viewer</p>
-          <h1>Обери 3D-модель</h1>
-          <p class="project-caption">Дипломний проект 2026 ArtLab</p>
-          <p id="projectUpdated" class="project-updated">Оновлення коду: ...</p>
-          <p class="panel-text">
-            Відкрий модель із бібліотеки або додай власну.
-          </p>
-        </div>
-
-        <div class="panel-section">
-          <label class="upload-button" for="modelInput">Додати .glb файли</label>
-          <input
-            id="modelInput"
-            type="file"
-            accept=".glb,model/gltf-binary"
-            multiple
-          />
-          <button id="resetViewButton" class="secondary-button" type="button">
-            Скинути камеру
-          </button>
-        </div>
-
-        <div class="panel-section">
-          <p class="section-title">Бібліотека моделей</p>
-          <div class="library-block">
-            <p class="library-title">Опублікована колекція</p>
-            <div id="publishedLibrary" class="asset-list"></div>
+        <header class="app-bar">
+          <div class="brand">
+            <span class="brand-mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"><path d="M12 2.5 21 7v10l-9 4.5L3 17V7z"/><path d="M3 7l9 4.5L21 7"/><path d="M12 11.5V21.5"/></svg>
+            </span>
+            <div class="brand-text">
+              <h1>GeoGLTF</h1>
+              <p>Переглядач просторових фігур</p>
+            </div>
           </div>
+          <label class="upload-button" for="modelInput" title="Додати власні .glb файли">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+            <span>.glb</span>
+          </label>
+          <input id="modelInput" type="file" accept=".glb,model/gltf-binary" multiple hidden />
+          <button id="resetViewButton" type="button" hidden aria-hidden="true"></button>
+        </header>
 
-          <div class="library-block">
-            <p class="library-title">Локальна колекція</p>
-            <div id="sessionLibrary" class="asset-list"></div>
-          </div>
-        </div>
+        <div class="lib-scroll">
+          <section class="lib-section">
+            <div class="lib-head">
+              <h2>Бібліотека моделей</h2>
+              <span class="lib-hint">Торкніться фігури, щоб відкрити</span>
+            </div>
+            <div id="publishedLibrary" class="asset-grid"></div>
+          </section>
 
-        <div class="panel-section">
-          <p class="section-title">Керування</p>
-          <p class="panel-text compact-text">Ліва: обертання • Права: панорамування • Коліщатко: масштаб</p>
-        </div>
+          <section class="lib-section" id="sessionSection">
+            <div class="lib-head"><h2>Мої файли</h2></div>
+            <div id="sessionLibrary" class="asset-grid"></div>
+          </section>
 
-        <div class="panel-section">
-          <p class="section-title">Інформація про модель</p>
-          <dl id="modelStats" class="stats-list">
-            <div>
-              <dt>Статус</dt>
-              <dd>Файл ще не завантажено</dd>
-            </div>
-            <div>
-              <dt>Назва</dt>
-              <dd>-</dd>
-            </div>
-            <div>
-              <dt>Розмір</dt>
-              <dd>-</dd>
-            </div>
-            <div>
-              <dt>Вершини</dt>
-              <dd>-</dd>
-            </div>
-            <div>
-              <dt>Полігони</dt>
-              <dd>-</dd>
-            </div>
-          </dl>
+          <section class="lib-section panel-desktop">
+            <div class="lib-head"><h2>Про модель</h2></div>
+            <dl id="modelStats" class="stats-list">
+              <div><dt>Статус</dt><dd>Файл ще не завантажено</dd></div>
+              <div><dt>Назва</dt><dd>-</dd></div>
+              <div><dt>Розмір</dt><dd>-</dd></div>
+              <div><dt>Вершини</dt><dd>-</dd></div>
+              <div><dt>Полігони</dt><dd>-</dd></div>
+            </dl>
+            <p class="hint-text">Керування: ліва — обертання, права — панорама, коліщатко — масштаб.</p>
+            <p id="projectUpdated" class="project-updated">Оновлення коду: ...</p>
+          </section>
         </div>
       </aside>
 
+      <!-- ============ ЕКРАН ПЕРЕГЛЯДУ ============ -->
       <main class="viewer-panel">
-        <div class="viewer-toolbar">
-          <div class="viewer-toolbar-main">
-            <button id="backToLibraryButton" class="toolbar-button" type="button">
-              Назад
-            </button>
-            <div class="viewer-toolbar-text">
-              <p id="viewerTitle">Перегляд моделі</p>
-              <p id="statusText">Оберіть модель у бібліотеці</p>
-            </div>
-          </div>
-          <div class="viewer-toolbar-actions">
-            <button id="viewerResetButton" class="toolbar-button" type="button">
-              Скинути вид
-            </button>
-            <button id="nextModelButton" class="toolbar-button accent" type="button">
-              Наступна
-            </button>
-          </div>
-        </div>
-        <div class="scene-quick-controls">
-          <button id="quickResetButton" class="quick-action-button" type="button">
-            Центр
-          </button>
-          <label class="quick-toggle quick-toggle-wide">
-            <input id="unfoldModeToggle" type="checkbox" />
-            <span>&#1056;&#1086;&#1079;&#1075;&#1086;&#1088;&#1090;&#1082;&#1072;</span>
-          </label>
-          <button id="unfoldPlayButton" class="quick-action-button" type="button">
-            &#1056;&#1086;&#1079;&#1075;&#1086;&#1088;&#1085;&#1091;&#1090;&#1080;
-          </button>
-          <label class="quick-range" for="unfoldProgressSlider">
-            <span>0%</span>
-            <input
-              id="unfoldProgressSlider"
-              type="range"
-              min="0"
-              max="100"
-              step="1"
-              value="0"
-            />
-            <span>100%</span>
-          </label>
-          <label class="quick-toggle">
-            <input id="mathModeToggle" type="checkbox" checked />
-            <span>Geo</span>
-          </label>
-          <label class="quick-toggle">
-            <input id="gridToggle" type="checkbox" checked />
-            <span>Сітка</span>
-          </label>
-          <label class="quick-toggle">
-            <input id="axesToggle" type="checkbox" checked />
-            <span>Осі</span>
-          </label>
-          <label class="quick-toggle">
-            <input id="wireframeToggle" type="checkbox" />
-            <span>Wire</span>
-          </label>
-        </div>
         <div id="dropZone" class="viewer-canvas-wrapper">
           <canvas id="sceneCanvas"></canvas>
           <div id="viewGizmo" class="view-gizmo"></div>
+
+          <div id="loadingOverlay" class="loading-overlay is-hidden" aria-hidden="true">
+            <div class="spinner"></div>
+            <p>Завантаження моделі…</p>
+          </div>
+
+          <div id="helpOverlay" class="help-overlay is-hidden" role="dialog" aria-label="Довідка">
+            <div class="help-card">
+              <button id="helpClose" class="info-close" type="button" aria-label="Закрити">×</button>
+              <p class="help-title">Як користуватися</p>
+              <ul class="help-list">
+                <li><b>Обертання</b> — перетягуй пальцем / лівою кнопкою. <b>Масштаб</b> — щипок / коліщатко. <b>Панорама</b> — двома пальцями / правою кнопкою.</li>
+                <li><b>Спереду / Зверху / Збоку / Ізо</b> — швидкі види (клавіші f, t, s, i).</li>
+                <li><b>Переріз</b> — площина зі зсувом і нахилом; показує форму, площу S і периметр P перерізу (клавіша c).</li>
+                <li><b>Підписи</b> — позначення вершин A, B, C, A₁… для многогранників (клавіша l).</li>
+                <li><b>Підсвітка</b> — торкнися грані, щоб виділити її.</li>
+                <li><b>Лінійка</b> — торкнись двох точок, щоб виміряти відстань; вершини «прилипають» (клавіша m).</li>
+                <li><b>Обертання</b> — авто-обертання фігури для демонстрації (клавіша a).</li>
+                <li><b>GeoGebra ⤴</b> — копіює вершини многогранника як команди A=(x,y,z) для GeoGebra.</li>
+                <li><b>Розгортка</b> — анімація розгортання: куб, піраміди, призми, циліндр, конус. <b>Скинути</b> — клавіша r.</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="viewer-topbar">
+            <button id="backToLibraryButton" class="icon-btn" type="button" aria-label="Назад до бібліотеки">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+            </button>
+            <div class="viewer-title-wrap">
+              <p id="viewerTitle">Перегляд моделі</p>
+              <p id="statusText" class="status" aria-live="polite">Оберіть модель</p>
+            </div>
+            <div class="topbar-actions">
+              <button id="helpButton" class="icon-btn" type="button" aria-label="Довідка та керування">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.2 9.3a2.8 2.8 0 1 1 4 2.5c-.9.5-1.2 1-1.2 1.9"/><circle cx="12" cy="17" r="0.6" fill="currentColor"/></svg>
+              </button>
+              <button id="shareButton" class="icon-btn" type="button" aria-label="Поділитися посиланням">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/><path d="M8.3 10.8l7.4-4.3M8.3 13.2l7.4 4.3"/></svg>
+              </button>
+              <button id="screenshotButton" class="icon-btn" type="button" aria-label="Зберегти знімок">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.2"/></svg>
+              </button>
+              <button id="fullscreenButton" class="icon-btn" type="button" aria-label="На весь екран">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div id="modelInfoCard" class="info-card is-hidden">
+            <button id="modelInfoClose" class="info-close" type="button" aria-label="Згорнути">×</button>
+            <p class="info-title"></p>
+            <p class="info-desc"></p>
+            <p class="info-euler"></p>
+            <p class="info-question"></p>
+          </div>
+
           <div class="canvas-overlay">
             <div id="sceneHint" class="overlay-card">
-              <button
-                id="closeHintButton"
-                class="overlay-close-button"
-                type="button"
-                aria-label="Закрити підказку"
-              >
-                ×
-              </button>
+              <button id="closeHintButton" class="overlay-close-button" type="button" aria-label="Закрити підказку">×</button>
               <p class="overlay-title">Навчальний режим 3D-аналізу</p>
-              <p>Автоцентрування, сітка та осі для швидкого аналізу.</p>
+              <p>Обертай фігуру пальцем, наближай щипком. Сітка й осі допомагають орієнтуватися.</p>
             </div>
+          </div>
+        </div>
+
+        <div class="viewer-dock">
+          <div class="dock-row dock-scroll">
+            <button id="viewFrontButton" class="chip" type="button">Спереду</button>
+            <button id="viewTopButton" class="chip" type="button">Зверху</button>
+            <button id="viewSideButton" class="chip" type="button">Збоку</button>
+            <button id="viewIsoButton" class="chip" type="button">Ізо</button>
+            <button id="quickResetButton" class="chip" type="button">Центр</button>
+            <button id="viewerResetButton" class="chip" type="button">Скинути</button>
+            <button id="nextModelButton" class="chip chip-accent" type="button">Наступна ›</button>
+            <button id="exportGgbButton" class="chip" type="button" title="Скопіювати вершини як команди GeoGebra">GeoGebra ⤴</button>
+          </div>
+
+          <div class="dock-row dock-scroll">
+            <label class="seg"><input id="mathModeToggle" type="checkbox" checked /><span>Geo-стиль</span></label>
+            <label class="seg"><input id="gridToggle" type="checkbox" checked /><span>Сітка</span></label>
+            <label class="seg"><input id="axesToggle" type="checkbox" checked /><span>Осі</span></label>
+            <label class="seg"><input id="wireframeToggle" type="checkbox" /><span>Каркас</span></label>
+            <label class="seg"><input id="labelsToggle" type="checkbox" /><span>Підписи</span></label>
+            <label class="seg"><input id="highlightToggle" type="checkbox" /><span>Підсвітка</span></label>
+            <label class="seg"><input id="measureToggle" type="checkbox" /><span>Лінійка</span></label>
+            <label class="seg"><input id="autoRotateToggle" type="checkbox" /><span>Обертання</span></label>
+            <label class="seg seg-accent"><input id="sectionToggle" type="checkbox" /><span>Переріз</span></label>
+          </div>
+
+          <div class="dock-row dock-section is-hidden" id="sectionControls">
+            <div class="section-axes" role="group" aria-label="Площина перерізу">
+              <button id="sectionAxisX" class="chip chip-axis" type="button" data-axis="x">X</button>
+              <button id="sectionAxisY" class="chip chip-axis is-active" type="button" data-axis="y">Y</button>
+              <button id="sectionAxisZ" class="chip chip-axis" type="button" data-axis="z">Z</button>
+            </div>
+            <label class="slider-field">
+              <span>Зсув</span>
+              <input id="sectionPositionSlider" class="unfold-slider" type="range" min="-100" max="100" step="1" value="0" aria-label="Положення площини перерізу" />
+            </label>
+            <label class="slider-field">
+              <span>Нахил</span>
+              <input id="sectionTiltSlider" class="unfold-slider" type="range" min="-60" max="60" step="1" value="0" aria-label="Нахил площини перерізу" />
+            </label>
+            <label class="seg"><input id="sectionPlaneToggle" type="checkbox" checked /><span>Площина</span></label>
+            <span id="sectionInfo" class="section-info" aria-live="polite"></span>
+          </div>
+
+          <div class="dock-row dock-unfold">
+            <label class="seg seg-strong"><input id="unfoldModeToggle" type="checkbox" /><span>Розгортка</span></label>
+            <button id="unfoldPlayButton" class="chip chip-icon" type="button" aria-label="Відтворити розгортку">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            </button>
+            <input id="unfoldProgressSlider" class="unfold-slider" type="range" min="0" max="100" step="1" value="0" aria-label="Прогрес розгортки" />
           </div>
         </div>
       </main>
@@ -165,8 +231,8 @@
     <script type="importmap">
       {
         "imports": {
-          "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js",
-          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/"
+          "three": "./assets/vendor/three/three.module.js",
+          "three/addons/": "./assets/vendor/three/addons/"
         }
       }
     </script>

@@ -1,3 +1,8 @@
+/*
+ * GeoGLTF Viewer — увесь застосунок в одному ES-модулі.
+ * Карта блоків, життєвий цикл моделі та підводні камені: див. ARCHITECTURE.md.
+ * Правила внесення змін (кеш SW, TDZ, dispose): див. ../CLAUDE.md.
+ */
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
@@ -83,6 +88,7 @@ let currentModelFrameSize = 1;
 let savedCameraState = null;
 const publishedAssets = [];
 const sessionAssets = [];
+let libraryLoadFailed = false;
 let activeAsset = null;
 let activeUnfoldController = null;
 let viewportResizeObserver = null;
@@ -100,8 +106,11 @@ updateProjectUpdatedLabel();
 bindEvents();
 renderAssetLibraries();
 loadPublishedLibrary();
-animate();
+// Перший кадр запускаємо через requestAnimationFrame, щоб усі module-level
+// константи (sectionState тощо) встигли ініціалізуватися до першого рендеру.
+requestAnimationFrame(animate);
 setStatus("Готово до завантаження моделі");
+window.__geogltfReady = true;
 
 /**
  * Створює WebGL-рендерер з адаптацією під щільність екрана.
@@ -111,6 +120,7 @@ function createRenderer(targetCanvas) {
     canvas: targetCanvas,
     antialias: true,
     alpha: true,
+    preserveDrawingBuffer: true,
   });
 
   nextRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -591,10 +601,12 @@ async function loadPublishedLibrary() {
         .map((entry, index) => normalizePublishedAsset(entry, index))
         .filter(Boolean),
     );
+    libraryLoadFailed = false;
     renderAssetLibraries();
   } catch (error) {
     console.error(error);
     publishedAssets.length = 0;
+    libraryLoadFailed = true;
     renderAssetLibraries();
   }
 }
@@ -621,9 +633,31 @@ function normalizePublishedAsset(entry, index) {
  * Перемальовує обидва списки моделей і виділяє поточну активну.
  */
 function renderAssetLibraries() {
-  renderAssetList(publishedLibrary, publishedAssets, "Опублікованих моделей поки немає.");
+  if (libraryLoadFailed && !publishedAssets.length) {
+    renderLibraryError(publishedLibrary);
+  } else {
+    renderAssetList(publishedLibrary, publishedAssets, "Опублікованих моделей поки немає.");
+  }
   renderAssetList(sessionLibrary, sessionAssets, "Локальних моделей поки не додано.");
   updateViewerActions();
+}
+
+/**
+ * Показує зрозумілий стан помилки бібліотеки замість порожнього списку.
+ */
+function renderLibraryError(container) {
+  container.replaceChildren();
+  const card = document.createElement("div");
+  card.className = "asset-card-error";
+  const text = document.createElement("p");
+  text.textContent = "Не вдалося завантажити каталог моделей. Перевірте підключення або синхронізацію файлів.";
+  const retry = document.createElement("button");
+  retry.type = "button";
+  retry.className = "retry-button";
+  retry.textContent = "Повторити";
+  retry.addEventListener("click", loadPublishedLibrary);
+  card.append(text, retry);
+  container.append(card);
 }
 
 /**
@@ -659,9 +693,13 @@ function renderAssetList(container, assets, emptyMessage) {
       preview.append(image);
     } else {
       const placeholder = document.createElement("div");
-      placeholder.className = "asset-card-placeholder";
-      placeholder.textContent =
-        asset.thumbnailStatus === "error" ? "No preview" : "Preview";
+      if (asset.thumbnailStatus === "error") {
+        placeholder.className = "asset-card-placeholder";
+        placeholder.textContent = "Без прев'ю";
+      } else {
+        placeholder.className = "asset-card-placeholder is-loading";
+        placeholder.textContent = "Завантаження";
+      }
       preview.append(placeholder);
       enqueueThumbnail(asset);
     }
@@ -692,6 +730,8 @@ async function loadAsset(asset, options = {}) {
   renderAssetLibraries();
   disposeActiveModel();
   updateViewerHeader(asset.title);
+  updateModelInfoCard(asset);
+  resetSpatialTools();
 
   if (switchMode) {
     switchToViewerMode();
@@ -706,6 +746,8 @@ async function loadAsset(asset, options = {}) {
     polygons: "-",
   });
 
+  showLoadingOverlay(true);
+
   try {
     const arrayBuffer = await resolveAssetArrayBuffer(asset);
     await parseModelBuffer(arrayBuffer, asset);
@@ -713,6 +755,8 @@ async function loadAsset(asset, options = {}) {
     syncViewerLayout({ reframeModel: true, preserveView });
   } catch (error) {
     handleLoadError(asset, error);
+  } finally {
+    showLoadingOverlay(false);
   }
 }
 
@@ -1075,6 +1119,7 @@ function parseModelBuffer(arrayBuffer, asset) {
           polygons: stats.triangles.toLocaleString("uk-UA"),
         });
         setStatus(`Модель ${asset.title} готова до аналізу`);
+        updateEulerInfo();
         resolve();
       },
       (error) => {
@@ -1331,7 +1376,23 @@ function getSupportedUnfoldType(asset) {
   }
 
   if (source.includes("piramide") || source.includes("пірамід") || source.includes("pyramid")) {
-    return "square-pyramid";
+    return "pyramid";
+  }
+
+  if (source.includes("prism_tri") || source.includes("трикутна призма")) {
+    return "prism-3";
+  }
+
+  if (source.includes("prism_hex") || source.includes("шестикут")) {
+    return "prism-6";
+  }
+
+  if (source.includes("cylind") || source.includes("цилінд")) {
+    return "cylinder";
+  }
+
+  if (source.includes("cone") || source.includes("конус")) {
+    return "cone";
   }
 
   return null;
@@ -1378,7 +1439,7 @@ function setUnfoldModeEnabled(isEnabled) {
 
   if (!activeUnfoldController) {
     unfoldModeToggle.checked = false;
-    setStatus("Розгортка зараз доступна для куба і піраміди.");
+    setStatus("Розгортка недоступна для цієї фігури.");
     updateUnfoldUiState();
     return;
   }
@@ -1479,9 +1540,12 @@ function applyUnfoldRenderStyle() {
     face.material.transparent = true;
     face.material.opacity = showWireframe ? 0.98 : isMathMode ? mathStyle.faceOpacity : 0.92;
     face.material.wireframe = showWireframe;
-    face.edgeLines.visible = !showWireframe;
-    face.edgeMaterial.color.set(isMathMode ? mathStyle.visibleEdgeColor : 0x6c4021);
-    face.edgeMaterial.opacity = isMathMode ? 0.98 : 0.84;
+
+    if (face.edgeLines) {
+      face.edgeLines.visible = !showWireframe;
+      face.edgeMaterial.color.set(isMathMode ? mathStyle.visibleEdgeColor : 0x6c4021);
+      face.edgeMaterial.opacity = isMathMode ? 0.98 : 0.84;
+    }
   });
 }
 
@@ -1529,8 +1593,29 @@ function buildUnfoldController(unfoldType, modelRoot) {
     return buildCubeUnfoldController(size);
   }
 
-  if (unfoldType === "square-pyramid") {
+  if (unfoldType === "pyramid") {
+    // Основа з рівностороннього трикутника має відношення глибини до ширини √3/2 ≈ 0.866.
+    const ratio = size.z / Math.max(size.x, 0.0001);
+    if (Math.abs(ratio - Math.sqrt(3) / 2) < 0.08) {
+      return buildRegularPyramidUnfoldController(3, size);
+    }
     return buildSquarePyramidUnfoldController(size);
+  }
+
+  if (unfoldType === "prism-3") {
+    return buildRegularPrismUnfoldController(3, size);
+  }
+
+  if (unfoldType === "prism-6") {
+    return buildRegularPrismUnfoldController(6, size);
+  }
+
+  if (unfoldType === "cylinder") {
+    return buildCylinderUnfoldController(size);
+  }
+
+  if (unfoldType === "cone") {
+    return buildConeUnfoldController(size);
   }
 
   return null;
@@ -1704,9 +1789,284 @@ function buildSquarePyramidUnfoldController(size) {
 }
 
 /**
+ * Повертає напрямок середини ребра j правильного n-кутника (ребро 0 дивиться на +Z).
+ */
+function getPolygonEdgeDirection(sideCount, edgeIndex) {
+  const angle = Math.PI / 2 - (edgeIndex * 2 * Math.PI) / sideCount;
+  return new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle));
+}
+
+/**
+ * Створює геометрію правильного n-кутника, ребра якого узгоджені з getPolygonEdgeDirection.
+ */
+function createRegularPolygonGeometry(circumRadius, sideCount) {
+  return new THREE.CircleGeometry(
+    circumRadius,
+    sideCount,
+    Math.PI / sideCount - Math.PI / 2,
+  );
+}
+
+/**
+ * Створює розгортку правильної піраміди: n-кутна основа і n трикутних граней-пелюсток.
+ */
+function buildRegularPyramidUnfoldController(sideCount, size) {
+  const edgeLength = sideCount === 3
+    ? Math.max(size.x, (size.z * 2) / Math.sqrt(3), 0.5)
+    : Math.max(size.x, size.z, 0.5);
+  const circumRadius = edgeLength / (2 * Math.sin(Math.PI / sideCount));
+  const apothem = circumRadius * Math.cos(Math.PI / sideCount);
+  const height = Math.max(size.y, edgeLength * 0.5);
+  const slantHeight = Math.hypot(height, apothem);
+  const apex = new THREE.Vector3(0, height, 0);
+  const groundTransform = createFaceTransform(
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(1, 0, 0),
+    new THREE.Vector3(0, 0, -1),
+  );
+  const faceDefinitions = [
+    {
+      geometry: createRegularPolygonGeometry(circumRadius, sideCount),
+      folded: groundTransform,
+      flat: groundTransform,
+    },
+  ];
+
+  for (let edgeIndex = 0; edgeIndex < sideCount; edgeIndex += 1) {
+    const outward = getPolygonEdgeDirection(sideCount, edgeIndex);
+    const edgeMidpoint = outward.clone().multiplyScalar(apothem);
+    const tangent = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), outward);
+
+    faceDefinitions.push({
+      geometry: createTriangleFaceGeometry(edgeLength, slantHeight),
+      folded: createFaceTransform(edgeMidpoint, tangent, apex.clone().sub(edgeMidpoint)),
+      flat: createFaceTransform(edgeMidpoint, tangent, outward),
+    });
+  }
+
+  return createUnfoldControllerFromFaces(faceDefinitions);
+}
+
+/**
+ * Створює розгортку правильної призми: нижня основа, n бічних граней-пелюсток
+ * і верхня основа, приєднана за переднім прямокутником.
+ */
+function buildRegularPrismUnfoldController(sideCount, size) {
+  const edgeLength = sideCount === 3
+    ? Math.max(size.x, (size.z * 2) / Math.sqrt(3), 0.5)
+    : Math.max(size.x, size.z, 0.5) * Math.sin(Math.PI / sideCount);
+  const circumRadius = edgeLength / (2 * Math.sin(Math.PI / sideCount));
+  const apothem = circumRadius * Math.cos(Math.PI / sideCount);
+  const height = Math.max(size.y, edgeLength * 0.4);
+  const groundTransform = createFaceTransform(
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(1, 0, 0),
+    new THREE.Vector3(0, 0, -1),
+  );
+  const faceDefinitions = [
+    {
+      geometry: createRegularPolygonGeometry(circumRadius, sideCount),
+      folded: groundTransform,
+      flat: groundTransform,
+    },
+  ];
+
+  for (let edgeIndex = 0; edgeIndex < sideCount; edgeIndex += 1) {
+    const outward = getPolygonEdgeDirection(sideCount, edgeIndex);
+    const edgeMidpoint = outward.clone().multiplyScalar(apothem);
+    const tangent = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), outward);
+
+    faceDefinitions.push({
+      geometry: new THREE.PlaneGeometry(edgeLength, height),
+      folded: createFaceTransform(
+        edgeMidpoint.clone().add(new THREE.Vector3(0, height / 2, 0)),
+        tangent,
+        new THREE.Vector3(0, 1, 0),
+      ),
+      flat: createFaceTransform(
+        outward.clone().multiplyScalar(apothem + height / 2),
+        tangent,
+        outward,
+      ),
+    });
+  }
+
+  const frontOutward = getPolygonEdgeDirection(sideCount, 0);
+  faceDefinitions.push({
+    geometry: createRegularPolygonGeometry(circumRadius, sideCount),
+    folded: createFaceTransform(
+      new THREE.Vector3(0, height, 0),
+      new THREE.Vector3(1, 0, 0),
+      new THREE.Vector3(0, 0, -1),
+    ),
+    flat: createFaceTransform(
+      frontOutward.clone().multiplyScalar(apothem + height + apothem),
+      new THREE.Vector3(1, 0, 0),
+      new THREE.Vector3(0, 0, 1),
+    ),
+  });
+
+  return createUnfoldControllerFromFaces(faceDefinitions);
+}
+
+/**
+ * Створює бічну поверхню, що плавно морфиться між згорнутим і розгорнутим станом.
+ * Повертає елемент face без контурних ребер (для гладких тіл обертання).
+ */
+function createMorphLateralFace(foldedPositions, flatPositions, indices) {
+  const geometry = new THREE.BufferGeometry();
+  const positionAttribute = new THREE.Float32BufferAttribute(foldedPositions.slice(), 3);
+  geometry.setAttribute("position", positionAttribute);
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+
+  const material = new THREE.MeshPhongMaterial({
+    color: 0xc58f66,
+    transparent: true,
+    opacity: 0.92,
+    side: THREE.DoubleSide,
+    polygonOffset: true,
+    polygonOffsetFactor: 1,
+    polygonOffsetUnits: 1,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+
+  const setMorphProgress = (progress) => {
+    const target = positionAttribute.array;
+    for (let i = 0; i < target.length; i += 1) {
+      target[i] = foldedPositions[i] + (flatPositions[i] - foldedPositions[i]) * progress;
+    }
+    positionAttribute.needsUpdate = true;
+    geometry.computeVertexNormals();
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+  };
+
+  return {
+    mesh,
+    material,
+    edgeLines: null,
+    edgeMaterial: null,
+    setMorphProgress,
+  };
+}
+
+/**
+ * Створює розгортку циліндра: бічна поверхня розгортається у прямокутник 2πr × h,
+ * основи — два круги (нижній лишається на місці, верхній лягає за прямокутником).
+ */
+function buildCylinderUnfoldController(size) {
+  const radius = Math.max(size.x, size.z, 0.5) / 2;
+  const height = Math.max(size.y, radius * 0.5);
+  const segments = 48;
+  const foldedPositions = [];
+  const flatPositions = [];
+  const indices = [];
+
+  for (let k = 0; k <= segments; k += 1) {
+    const angle = Math.PI / 2 + ((k / segments) - 0.5) * Math.PI * 2;
+    const unrolledX = ((k / segments) - 0.5) * Math.PI * 2 * radius;
+
+    for (let v = 0; v <= 1; v += 1) {
+      foldedPositions.push(radius * Math.cos(angle), v * height, radius * Math.sin(angle));
+      flatPositions.push(unrolledX, 0.002, radius * 1.02 + v * height);
+    }
+  }
+
+  for (let k = 0; k < segments; k += 1) {
+    const base = k * 2;
+    indices.push(base, base + 2, base + 1, base + 1, base + 2, base + 3);
+  }
+
+  const lateralFace = createMorphLateralFace(foldedPositions, flatPositions, indices);
+  const groundTransform = createFaceTransform(
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(1, 0, 0),
+    new THREE.Vector3(0, 0, -1),
+  );
+  const capDefinitions = [
+    {
+      geometry: new THREE.CircleGeometry(radius, 48),
+      folded: groundTransform,
+      flat: groundTransform,
+    },
+    {
+      geometry: new THREE.CircleGeometry(radius, 48),
+      folded: createFaceTransform(
+        new THREE.Vector3(0, height, 0),
+        new THREE.Vector3(1, 0, 0),
+        new THREE.Vector3(0, 0, -1),
+      ),
+      flat: createFaceTransform(
+        new THREE.Vector3(0, 0, radius * 1.02 + height + radius * 1.05),
+        new THREE.Vector3(1, 0, 0),
+        new THREE.Vector3(0, 0, 1),
+      ),
+    },
+  ];
+
+  return createUnfoldControllerFromFaces(capDefinitions, [lateralFace]);
+}
+
+/**
+ * Створює розгортку конуса: бічна поверхня розгортається у сектор радіуса l = √(r²+h²)
+ * з кутом 2πr/l, основа — круг, що лишається на місці.
+ */
+function buildConeUnfoldController(size) {
+  const radius = Math.max(size.x, size.z, 0.5) / 2;
+  const height = Math.max(size.y, radius * 0.5);
+  const slant = Math.hypot(radius, height);
+  const sectorAngle = (Math.PI * 2 * radius) / slant;
+  const segments = 48;
+  const flatApex = new THREE.Vector3(0, 0.002, radius * 1.15);
+  const foldedPositions = [];
+  const flatPositions = [];
+  const indices = [];
+
+  for (let k = 0; k <= segments; k += 1) {
+    const angle = Math.PI / 2 + ((k / segments) - 0.5) * Math.PI * 2;
+    const sectorDirection = Math.PI / 2 + ((k / segments) - 0.5) * sectorAngle;
+
+    // Ряд v=0 — вершина, ряд v=1 — коло основи.
+    foldedPositions.push(0, height, 0);
+    foldedPositions.push(radius * Math.cos(angle), 0, radius * Math.sin(angle));
+
+    flatPositions.push(flatApex.x, flatApex.y, flatApex.z);
+    flatPositions.push(
+      flatApex.x + slant * Math.cos(sectorDirection),
+      0.002,
+      flatApex.z + slant * Math.sin(sectorDirection),
+    );
+  }
+
+  for (let k = 0; k < segments; k += 1) {
+    const base = k * 2;
+    indices.push(base, base + 2, base + 1, base + 1, base + 2, base + 3);
+  }
+
+  const lateralFace = createMorphLateralFace(foldedPositions, flatPositions, indices);
+  const groundTransform = createFaceTransform(
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(1, 0, 0),
+    new THREE.Vector3(0, 0, -1),
+  );
+  const capDefinitions = [
+    {
+      geometry: new THREE.CircleGeometry(radius, 48),
+      folded: groundTransform,
+      flat: groundTransform,
+    },
+  ];
+
+  return createUnfoldControllerFromFaces(capDefinitions, [lateralFace]);
+}
+
+/**
  * Створює універсальний контролер для набору граней із двома наборами трансформів.
  */
-function createUnfoldControllerFromFaces(faceDefinitions) {
+function createUnfoldControllerFromFaces(faceDefinitions, morphFaces = []) {
   const group = new THREE.Group();
   group.name = "unfoldGroup";
   const faces = faceDefinitions.map((definition) => {
@@ -1717,8 +2077,18 @@ function createUnfoldControllerFromFaces(faceDefinitions) {
     return face;
   });
 
+  morphFaces.forEach((face) => {
+    group.add(face.mesh);
+    faces.push(face);
+  });
+
   const setProgress = (progress) => {
     faces.forEach((face) => {
+      if (face.setMorphProgress) {
+        face.setMorphProgress(progress);
+        return;
+      }
+
       face.mesh.position.copy(face.folded.position).lerp(face.flat.position, progress);
       face.mesh.quaternion.copy(face.folded.quaternion).slerp(face.flat.quaternion, progress);
     });
@@ -1738,8 +2108,8 @@ function createUnfoldControllerFromFaces(faceDefinitions) {
     setProgress,
     dispose() {
       faces.forEach((face) => {
-        face.edgeLines.geometry.dispose();
-        face.edgeMaterial.dispose();
+        face.edgeLines?.geometry.dispose();
+        face.edgeMaterial?.dispose();
         face.mesh.geometry.dispose();
         face.material.dispose();
       });
@@ -2339,6 +2709,7 @@ function animate() {
   const deltaSeconds = animationClock.getDelta();
   updateUnfoldAnimation(deltaSeconds);
   controls.update();
+  maintainSpatialTools();
   gizmoRoot.quaternion.copy(camera.quaternion).invert();
   renderer.setViewport(0, 0, renderer.domElement.width, renderer.domElement.height);
   renderer.setScissorTest(false);
@@ -2371,4 +2742,1155 @@ function renderViewGizmo() {
   );
   renderer.render(gizmoScene, gizmoCamera);
   renderer.setScissorTest(false);
+}
+
+/* ============================================================
+   РОЗШИРЕННЯ ІНТЕРФЕЙСУ (швидкі види, повноекран, знімок,
+   поширення, глибокі посилання, картка моделі)
+   ============================================================ */
+
+const viewFrontButton = document.querySelector("#viewFrontButton");
+const viewTopButton = document.querySelector("#viewTopButton");
+const viewSideButton = document.querySelector("#viewSideButton");
+const viewIsoButton = document.querySelector("#viewIsoButton");
+const fullscreenButton = document.querySelector("#fullscreenButton");
+const screenshotButton = document.querySelector("#screenshotButton");
+const shareButton = document.querySelector("#shareButton");
+const modelInfoCard = document.querySelector("#modelInfoCard");
+const modelInfoClose = document.querySelector("#modelInfoClose");
+
+const NAMED_VIEW_DIRECTIONS = {
+  front: [0, 0, 1],
+  back: [0, 0, -1],
+  top: [0, 1, 0.0001],
+  bottom: [0, -1, 0.0001],
+  side: [1, 0, 0],
+  iso: [1, 0.7, 1],
+};
+
+function setNamedView(viewName) {
+  const root = getCurrentDisplayRoot();
+  if (!root) {
+    return;
+  }
+  const bounds = new THREE.Box3().setFromObject(root);
+  const center = bounds.getCenter(new THREE.Vector3());
+  const size = bounds.getSize(new THREE.Vector3());
+  const safeDimension = Math.max(size.x, size.y, size.z) || 1;
+  const direction = new THREE.Vector3(
+    ...(NAMED_VIEW_DIRECTIONS[viewName] || NAMED_VIEW_DIRECTIONS.iso),
+  ).normalize();
+  const distance = getFitCameraDistance(bounds, direction);
+  camera.position.copy(center).add(direction.clone().multiplyScalar(distance));
+  controls.target.copy(center);
+  camera.near = Math.max(safeDimension / 100, 0.01);
+  camera.far = safeDimension * 100;
+  camera.updateProjectionMatrix();
+  controls.update();
+  updateSavedCameraState();
+}
+
+function toggleFullscreen() {
+  const target = viewerPanel || document.documentElement;
+  if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+    const request = target.requestFullscreen || target.webkitRequestFullscreen;
+    if (request) {
+      request.call(target);
+    }
+  } else {
+    const exit = document.exitFullscreen || document.webkitExitFullscreen;
+    if (exit) {
+      exit.call(document);
+    }
+  }
+}
+
+function captureScreenshot() {
+  try {
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, renderer.domElement.width, renderer.domElement.height);
+    renderer.clear();
+    renderer.render(scene, camera);
+    const dataUrl = renderer.domElement.toDataURL("image/png");
+    const link = document.createElement("a");
+    const baseName = (activeAsset?.title || "geogltf").replace(/\s+/g, "_");
+    link.href = dataUrl;
+    link.download = `${baseName}.png`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setStatus("Знімок збережено");
+  } catch (error) {
+    setStatus("Не вдалося зберегти знімок");
+  }
+}
+
+function slugifyTitle(text) {
+  return String(text || "")
+    .toLowerCase()
+    .trim()
+    .replace(/['’"`]/g, "")
+    .replace(/[^a-zа-яіїєґ0-9]+/gi, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+async function shareCurrentModel() {
+  if (!activeAsset) {
+    setStatus("Спершу відкрийте модель");
+    return;
+  }
+  const slug = slugifyTitle(activeAsset.title);
+  const url = `${location.origin}${location.pathname}?model=${encodeURIComponent(slug)}`;
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: `GeoGLTF — ${activeAsset.title}`, url });
+      return;
+    }
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(url);
+      setStatus("Посилання скопійовано");
+      return;
+    }
+  } catch (error) {
+    return;
+  }
+  window.prompt("Скопіюйте посилання на модель:", url);
+}
+
+const MODEL_QUESTIONS = [
+  { keys: ["зріз", "slice", "переріз"], text: "Яка форма перерізу? Скільки граней перетинає площина?" },
+  { keys: ["куб", "cube"], text: "Скільки граней, ребер і вершин? Що не змінюється при обертанні?" },
+  { keys: ["цилінд", "cylind"], text: "Якою фігурою утворено циліндр обертанням?" },
+  { keys: ["конус", "cone"], text: "Як змінюється форма перерізу конуса при нахилі площини?" },
+  { keys: ["призм", "prism"], text: "Які ребра паралельні, а які мимобіжні?" },
+  { keys: ["пірамід", "piramide", "pyramid"], text: "Що змінюється зі зміною висоти, а що залишається?" },
+  { keys: ["сфер", "куля", "sphere"], text: "Який переріз сфери площиною і від чого залежить його радіус?" },
+];
+
+function pickModelQuestion(asset) {
+  const hay = `${asset?.title ?? ""} ${asset?.filePath ?? ""}`.toLowerCase();
+  const match = MODEL_QUESTIONS.find((item) => item.keys.some((key) => hay.includes(key)));
+  return match ? match.text : "";
+}
+
+function updateModelInfoCard(asset) {
+  if (!modelInfoCard) {
+    return;
+  }
+  const titleEl = modelInfoCard.querySelector(".info-title");
+  const descEl = modelInfoCard.querySelector(".info-desc");
+  const questionEl = modelInfoCard.querySelector(".info-question");
+  const eulerEl = modelInfoCard.querySelector(".info-euler");
+  if (titleEl) titleEl.textContent = asset?.title ?? "";
+  if (descEl) descEl.textContent = asset?.description ?? "";
+  if (questionEl) questionEl.textContent = pickModelQuestion(asset);
+  if (eulerEl) eulerEl.textContent = "";
+  modelInfoCard.classList.remove("is-hidden");
+}
+
+function bindEnhancementEvents() {
+  viewFrontButton?.addEventListener("click", () => setNamedView("front"));
+  viewTopButton?.addEventListener("click", () => setNamedView("top"));
+  viewSideButton?.addEventListener("click", () => setNamedView("side"));
+  viewIsoButton?.addEventListener("click", () => setNamedView("iso"));
+  fullscreenButton?.addEventListener("click", toggleFullscreen);
+  screenshotButton?.addEventListener("click", captureScreenshot);
+  shareButton?.addEventListener("click", shareCurrentModel);
+  modelInfoClose?.addEventListener("click", () => {
+    modelInfoCard?.classList.add("is-hidden");
+  });
+  document.addEventListener("fullscreenchange", () => {
+    setTimeout(() => {
+      resizeRenderer();
+      syncViewerLayout({ reframeModel: false, preserveView: true });
+    }, 80);
+  });
+  window.addEventListener("keydown", (event) => {
+    const key = event.key.toLowerCase();
+    if (key === "f") setNamedView("front");
+    else if (key === "t") setNamedView("top");
+    else if (key === "s") setNamedView("side");
+    else if (key === "i") setNamedView("iso");
+  });
+}
+
+async function openModelFromQuery() {
+  const params = new URLSearchParams(location.search);
+  const wanted = params.get("model");
+  if (!wanted) {
+    return;
+  }
+  const wantedSlug = slugifyTitle(wanted);
+  for (let attempt = 0; attempt < 60 && publishedAssets.length === 0; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  const target = getAllAssets().find((asset) => {
+    const bySlug = slugifyTitle(asset.title) === wantedSlug;
+    const byFile = (asset.filePath || "").toLowerCase().includes(wanted.toLowerCase());
+    return bySlug || byFile;
+  });
+  if (target) {
+    loadAsset(target, { switchMode: true });
+  }
+}
+
+bindEnhancementEvents();
+openModelFromQuery();
+
+/* ============================================================
+   ПРОСТОРОВІ ІНСТРУМЕНТИ
+   (інтерактивний переріз площиною, підписи вершин,
+    підсвічування грані дотиком) + офлайн (service worker)
+   ============================================================ */
+
+const SECTION_FACE_COLOR = 0x10b981;
+const SECTION_LINE_COLOR = 0x0b7a55;
+const HIGHLIGHT_COLOR = 0xf59e0b;
+const LABEL_LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"];
+
+const labelsToggle = document.querySelector("#labelsToggle");
+const highlightToggle = document.querySelector("#highlightToggle");
+const sectionToggle = document.querySelector("#sectionToggle");
+const sectionControls = document.querySelector("#sectionControls");
+const sectionAxisButtons = [...document.querySelectorAll(".chip-axis")];
+const sectionPositionSlider = document.querySelector("#sectionPositionSlider");
+const sectionTiltSlider = document.querySelector("#sectionTiltSlider");
+const sectionPlaneToggle = document.querySelector("#sectionPlaneToggle");
+
+const sectionState = { enabled: false, axis: "y", position: 0, tiltDeg: 0, showPlane: true };
+const clipPlanes = [];
+const clipPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const sectionGroup = new THREE.Group();
+sectionGroup.name = "sectionGroup";
+let sectionPlaneMesh = null;
+let sectionOutline = null;
+let sectionFill = null;
+
+const labelsGroup = new THREE.Group();
+labelsGroup.name = "vertexLabels";
+let labelsBuilt = false;
+
+let highlightMesh = null;
+let highlightOutline = null;
+let pointerDownInfo = null;
+
+renderer.localClippingEnabled = true;
+scene.add(sectionGroup);
+scene.add(labelsGroup);
+
+/* ---------- Скидання інструментів при зміні моделі ---------- */
+function resetSpatialTools() {
+  setSectionEnabled(false);
+  if (sectionToggle) sectionToggle.checked = false;
+  clearVertexLabels();
+  if (labelsToggle) labelsToggle.checked = false;
+  clearHighlight();
+  clearMeasurement();
+  if (measureToggle) measureToggle.checked = false;
+  cachedCornerVertices = null;
+}
+
+/* ---------- ПЕРЕРІЗ ПЛОЩИНОЮ ---------- */
+function getActiveBounds() {
+  if (!activeModelRoot) return null;
+  activeModelRoot.updateMatrixWorld(true);
+  return new THREE.Box3().setFromObject(activeModelRoot);
+}
+
+function computeSectionGeometry() {
+  const box = getActiveBounds();
+  if (!box) return null;
+  const center = box.getCenter(new THREE.Vector3());
+  const sphere = box.getBoundingSphere(new THREE.Sphere());
+  const radius = sphere.radius || 1;
+  const baseNormal = sectionState.axis === "x"
+    ? new THREE.Vector3(1, 0, 0)
+    : sectionState.axis === "z"
+      ? new THREE.Vector3(0, 0, 1)
+      : new THREE.Vector3(0, 1, 0);
+  const tiltAxis = sectionState.axis === "y"
+    ? new THREE.Vector3(1, 0, 0)
+    : new THREE.Vector3(0, 1, 0);
+  const normal = baseNormal
+    .clone()
+    .applyAxisAngle(tiltAxis, THREE.MathUtils.degToRad(sectionState.tiltDeg))
+    .normalize();
+  const point = center
+    .clone()
+    .add(normal.clone().multiplyScalar((sectionState.position / 100) * radius));
+  return { normal, point, center, radius };
+}
+
+function collectModelTriangles() {
+  const triangles = [];
+  if (!activeModelRoot) return triangles;
+  activeModelRoot.updateMatrixWorld(true);
+  activeModelRoot.traverse((node) => {
+    if (!node.isMesh || !node.geometry || !node.geometry.attributes.position) return;
+    if (node.userData.isSpatialHelper) return;
+    const position = node.geometry.attributes.position;
+    const index = node.geometry.index;
+    const matrix = node.matrixWorld;
+    const count = index ? index.count : position.count;
+    for (let i = 0; i < count; i += 3) {
+      const ia = index ? index.getX(i) : i;
+      const ib = index ? index.getX(i + 1) : i + 1;
+      const ic = index ? index.getX(i + 2) : i + 2;
+      triangles.push([
+        new THREE.Vector3().fromBufferAttribute(position, ia).applyMatrix4(matrix),
+        new THREE.Vector3().fromBufferAttribute(position, ib).applyMatrix4(matrix),
+        new THREE.Vector3().fromBufferAttribute(position, ic).applyMatrix4(matrix),
+      ]);
+    }
+  });
+  return triangles;
+}
+
+function intersectTriangleWithPlane(tri, plane) {
+  const distances = tri.map((v) => plane.distanceToPoint(v));
+  const crossings = [];
+  const edges = [[0, 1], [1, 2], [2, 0]];
+  for (const [i, j] of edges) {
+    const di = distances[i];
+    const dj = distances[j];
+    if ((di < 0 && dj > 0) || (di > 0 && dj < 0)) {
+      const t = di / (di - dj);
+      crossings.push(tri[i].clone().lerp(tri[j], t));
+    }
+  }
+  return crossings.length === 2 ? crossings : null;
+}
+
+function buildSectionVisual() {
+  disposeSectionVisual();
+  const info = computeSectionGeometry();
+  if (!info) return;
+  const { normal, point, center, radius } = info;
+  clipPlane.setFromNormalAndCoplanarPoint(normal.clone(), point);
+  if (clipPlanes.length === 0) clipPlanes.push(clipPlane);
+  applyModelClipping();
+
+  // Контур і заливка перерізу.
+  const segPoints = [];
+  const planePoints = [];
+  const triangles = collectModelTriangles();
+  for (const tri of triangles) {
+    const seg = intersectTriangleWithPlane(tri, clipPlane);
+    if (seg) {
+      segPoints.push(seg[0], seg[1]);
+      planePoints.push(seg[0], seg[1]);
+    }
+  }
+
+  if (segPoints.length) {
+    const outlineGeo = new THREE.BufferGeometry().setFromPoints(segPoints);
+    sectionOutline = new THREE.LineSegments(
+      outlineGeo,
+      new THREE.LineBasicMaterial({ color: SECTION_LINE_COLOR, depthTest: false, transparent: true }),
+    );
+    sectionOutline.renderOrder = 6;
+    sectionGroup.add(sectionOutline);
+
+    const fillInfo = buildSectionFillGeometry(planePoints, normal, point);
+    updateSectionInfo(fillInfo);
+    if (fillInfo) {
+      sectionFill = new THREE.Mesh(
+        fillInfo.geometry,
+        new THREE.MeshBasicMaterial({
+          color: SECTION_FACE_COLOR,
+          transparent: true,
+          opacity: 0.32,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        }),
+      );
+      sectionFill.renderOrder = 5;
+      sectionGroup.add(sectionFill);
+    }
+  } else {
+    updateSectionInfo(null);
+  }
+
+  // Напівпрозора площина-індикатор.
+  if (sectionState.showPlane) {
+    const size = radius * 2.4;
+    const planeGeo = new THREE.PlaneGeometry(size, size);
+    sectionPlaneMesh = new THREE.Mesh(
+      planeGeo,
+      new THREE.MeshBasicMaterial({
+        color: SECTION_FACE_COLOR,
+        transparent: true,
+        opacity: 0.1,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      }),
+    );
+    sectionPlaneMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+    sectionPlaneMesh.position.copy(point);
+    sectionPlaneMesh.renderOrder = 4;
+    sectionGroup.add(sectionPlaneMesh);
+  }
+  void center;
+}
+
+function buildSectionFillGeometry(points, normal, origin) {
+  if (points.length < 6) return null;
+  // Базис у площині перерізу.
+  const u = new THREE.Vector3(0, 1, 0);
+  if (Math.abs(normal.dot(u)) > 0.9) u.set(1, 0, 0);
+  const xAxis = new THREE.Vector3().crossVectors(u, normal).normalize();
+  const yAxis = new THREE.Vector3().crossVectors(normal, xAxis).normalize();
+  // Унікальні точки контуру.
+  const unique = [];
+  const seen = new Set();
+  for (const p of points) {
+    const key = `${p.x.toFixed(3)},${p.y.toFixed(3)},${p.z.toFixed(3)}`;
+    if (!seen.has(key)) { seen.add(key); unique.push(p); }
+  }
+  if (unique.length < 3) return null;
+  const centroid = unique.reduce((acc, p) => acc.add(p), new THREE.Vector3()).multiplyScalar(1 / unique.length);
+  const projected = unique.map((p) => {
+    const d = p.clone().sub(centroid);
+    return { p, a: Math.atan2(d.dot(yAxis), d.dot(xAxis)) };
+  });
+  projected.sort((m, n) => m.a - n.a);
+  const verts = [];
+  let area = 0;
+  for (let i = 1; i < projected.length - 1; i += 1) {
+    verts.push(
+      projected[0].p.x, projected[0].p.y, projected[0].p.z,
+      projected[i].p.x, projected[i].p.y, projected[i].p.z,
+      projected[i + 1].p.x, projected[i + 1].p.y, projected[i + 1].p.z,
+    );
+    const edgeA = projected[i].p.clone().sub(projected[0].p);
+    const edgeB = projected[i + 1].p.clone().sub(projected[0].p);
+    area += edgeA.cross(edgeB).length() / 2;
+  }
+
+  let perimeter = 0;
+  for (let i = 0; i < projected.length; i += 1) {
+    perimeter += projected[i].p.distanceTo(projected[(i + 1) % projected.length].p);
+  }
+
+  void origin;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(verts, 3));
+  geo.computeVertexNormals();
+  return { geometry: geo, area, perimeter };
+}
+
+/**
+ * Показує площу та периметр поточного перерізу в панелі керування перерізом.
+ */
+function updateSectionInfo(fillInfo) {
+  const infoElement = document.querySelector("#sectionInfo");
+  if (!infoElement) {
+    return;
+  }
+
+  if (!fillInfo) {
+    infoElement.textContent = "";
+    return;
+  }
+
+  infoElement.textContent = `S ≈ ${fillInfo.area.toFixed(2)} · P ≈ ${fillInfo.perimeter.toFixed(2)}`;
+}
+
+function collectNodeMaterials(node) {
+  const out = [];
+  const push = (m) => { if (m) out.push(...(Array.isArray(m) ? m : [m])); };
+  push(node.material);
+  push(node.userData?.originalMaterial);
+  push(node.userData?.mathMaterial);
+  return out;
+}
+
+function applyModelClipping() {
+  if (!activeModelRoot) return;
+  activeModelRoot.traverse((node) => {
+    if (!node.isMesh && !node.isLineSegments && !node.isLine) return;
+    collectNodeMaterials(node).forEach((m) => {
+      if (m && m.clippingPlanes !== clipPlanes) m.clippingPlanes = clipPlanes;
+    });
+  });
+}
+
+function clearModelClipping() {
+  if (!activeModelRoot) return;
+  activeModelRoot.traverse((node) => {
+    collectNodeMaterials(node).forEach((m) => {
+      if (m) m.clippingPlanes = null;
+    });
+  });
+}
+
+function disposeSectionVisual() {
+  [sectionOutline, sectionFill, sectionPlaneMesh].forEach((obj) => {
+    if (!obj) return;
+    sectionGroup.remove(obj);
+    obj.geometry?.dispose?.();
+    obj.material?.dispose?.();
+  });
+  sectionOutline = null;
+  sectionFill = null;
+  sectionPlaneMesh = null;
+  updateSectionInfo(null);
+}
+
+function setSectionEnabled(enabled) {
+  sectionState.enabled = enabled;
+  sectionControls?.classList.toggle("is-hidden", !enabled);
+  if (enabled) {
+    if (!activeModelRoot) {
+      setStatus("Спершу відкрийте модель");
+      sectionState.enabled = false;
+      sectionControls?.classList.add("is-hidden");
+      if (sectionToggle) sectionToggle.checked = false;
+      return;
+    }
+    buildSectionVisual();
+    setStatus("Переріз: рухайте повзунки зсуву й нахилу");
+  } else {
+    disposeSectionVisual();
+    clipPlanes.length = 0;
+    clearModelClipping();
+  }
+}
+
+function maintainSpatialTools() {
+  if (sectionState.enabled && clipPlanes.length) {
+    applyModelClipping();
+  }
+}
+
+/* ---------- ПІДПИСИ ВЕРШИН ---------- */
+function gatherCornerVertices() {
+  if (!activeModelRoot) return [];
+  activeModelRoot.updateMatrixWorld(true);
+  const points = [];
+  const seen = new Set();
+  activeModelRoot.traverse((node) => {
+    if (!node.isMesh || !node.geometry) return;
+    if (node.userData.isSpatialHelper) return;
+    const edges = new THREE.EdgesGeometry(node.geometry, 25);
+    const position = edges.attributes.position;
+    for (let i = 0; i < position.count; i += 1) {
+      const v = new THREE.Vector3().fromBufferAttribute(position, i).applyMatrix4(node.matrixWorld);
+      const key = `${v.x.toFixed(2)},${v.y.toFixed(2)},${v.z.toFixed(2)}`;
+      if (!seen.has(key)) { seen.add(key); points.push(v); }
+    }
+    edges.dispose();
+  });
+  return points;
+}
+
+function assignVertexLabels(points) {
+  if (!points.length) return [];
+  const ys = points.map((p) => p.y);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const midY = (minY + maxY) / 2;
+  const bottom = points.filter((p) => p.y <= midY);
+  const top = points.filter((p) => p.y > midY);
+
+  const sortRing = (ring) => {
+    if (!ring.length) return ring;
+    const c = ring.reduce((acc, p) => acc.add(p), new THREE.Vector3()).multiplyScalar(1 / ring.length);
+    return ring
+      .map((p) => ({ p, a: Math.atan2(p.z - c.z, p.x - c.x) }))
+      .sort((m, n) => m.a - n.a)
+      .map((o) => o.p);
+  };
+
+  const sortedBottom = sortRing(bottom);
+  const result = sortedBottom.map((p, i) => ({ point: p, text: LABEL_LETTERS[i] ?? `V${i + 1}` }));
+
+  if (top.length === 1) {
+    result.push({ point: top[0], text: "S" });
+  } else if (top.length === sortedBottom.length && sortedBottom.length) {
+    const sortedTop = sortRing(top);
+    // Зіставляємо верхнє кільце з нижнім за найближчою проєкцією XZ.
+    sortedTop.forEach((tp) => {
+      let best = 0;
+      let bestDist = Infinity;
+      sortedBottom.forEach((bp, bi) => {
+        const dist = (tp.x - bp.x) ** 2 + (tp.z - bp.z) ** 2;
+        if (dist < bestDist) { bestDist = dist; best = bi; }
+      });
+      result.push({ point: tp, text: `${LABEL_LETTERS[best] ?? `V${best + 1}`}₁` });
+    });
+  } else {
+    sortRing(top).forEach((p, i) => result.push({ point: p, text: LABEL_LETTERS[sortedBottom.length + i] ?? `V${i + 1}` }));
+  }
+  return result;
+}
+
+function makeLabelSprite(text) {
+  const size = 128;
+  const canvasEl = document.createElement("canvas");
+  canvasEl.width = size;
+  canvasEl.height = size;
+  const ctx = canvasEl.getContext("2d");
+  ctx.clearRect(0, 0, size, size);
+  ctx.beginPath();
+  ctx.arc(size / 2, size / 2, size / 2 - 6, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(15,23,42,0.86)";
+  ctx.fill();
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = "#10B981";
+  ctx.stroke();
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 68px 'Segoe UI', system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, size / 2, size / 2 + 4);
+  const texture = new THREE.CanvasTexture(canvasEl);
+  texture.anisotropy = 4;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true }));
+  sprite.renderOrder = 10;
+  return sprite;
+}
+
+function buildVertexLabels() {
+  clearVertexLabels();
+  const corners = gatherCornerVertices();
+  if (!corners.length || corners.length > 20) {
+    setStatus(corners.length > 20
+      ? "Підписи доступні лише для многогранників"
+      : "Немає вершин для підпису");
+    if (labelsToggle) labelsToggle.checked = false;
+    return false;
+  }
+  const box = getActiveBounds();
+  const center = box ? box.getCenter(new THREE.Vector3()) : new THREE.Vector3();
+  const radius = box ? box.getBoundingSphere(new THREE.Sphere()).radius || 1 : 1;
+  const labels = assignVertexLabels(corners);
+  const spriteSize = radius * 0.34;
+  labels.forEach(({ point, text }) => {
+    const sprite = makeLabelSprite(text);
+    const offset = point.clone().sub(center).normalize().multiplyScalar(radius * 0.16);
+    sprite.position.copy(point).add(offset);
+    sprite.scale.set(spriteSize, spriteSize, spriteSize);
+    labelsGroup.add(sprite);
+  });
+  labelsBuilt = true;
+  labelsGroup.visible = true;
+  return true;
+}
+
+function clearVertexLabels() {
+  [...labelsGroup.children].forEach((child) => {
+    labelsGroup.remove(child);
+    child.material?.map?.dispose?.();
+    child.material?.dispose?.();
+  });
+  labelsBuilt = false;
+}
+
+function setLabelsEnabled(enabled) {
+  if (enabled) {
+    if (!activeModelRoot) {
+      setStatus("Спершу відкрийте модель");
+      if (labelsToggle) labelsToggle.checked = false;
+      return;
+    }
+    if (!labelsBuilt) buildVertexLabels();
+    labelsGroup.visible = labelsBuilt;
+  } else {
+    labelsGroup.visible = false;
+  }
+}
+
+/* ---------- ПІДСВІЧУВАННЯ ГРАНІ ДОТИКОМ ---------- */
+function clearHighlight() {
+  [highlightMesh, highlightOutline].forEach((obj) => {
+    if (!obj) return;
+    scene.remove(obj);
+    obj.geometry?.dispose?.();
+    obj.material?.dispose?.();
+  });
+  highlightMesh = null;
+  highlightOutline = null;
+}
+
+function highlightFaceAt(clientX, clientY) {
+  if (!activeModelRoot) return;
+  const bounds = renderer.domElement.getBoundingClientRect();
+  pointer.x = ((clientX - bounds.left) / bounds.width) * 2 - 1;
+  pointer.y = -((clientY - bounds.top) / bounds.height) * 2 + 1;
+  raycaster.setFromCamera(pointer, camera);
+  const hits = raycaster.intersectObject(activeModelRoot, true).filter((h) => h.face && h.object.isMesh);
+  if (!hits.length) { clearHighlight(); return; }
+  const hit = hits[0];
+  const mesh = hit.object;
+  const normalMatrix = new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld);
+  const hitNormal = hit.face.normal.clone().applyMatrix3(normalMatrix).normalize();
+  const box = getActiveBounds();
+  const radius = box ? box.getBoundingSphere(new THREE.Sphere()).radius || 1 : 1;
+  const eps = radius * 0.02;
+  const planeConst = hitNormal.dot(hit.point);
+
+  const geo = mesh.geometry;
+  const position = geo.attributes.position;
+  const index = geo.index;
+  const count = index ? index.count : position.count;
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const triNormal = new THREE.Vector3();
+  const verts = [];
+  for (let i = 0; i < count; i += 3) {
+    const ia = index ? index.getX(i) : i;
+    const ib = index ? index.getX(i + 1) : i + 1;
+    const ic = index ? index.getX(i + 2) : i + 2;
+    a.fromBufferAttribute(position, ia).applyMatrix4(mesh.matrixWorld);
+    b.fromBufferAttribute(position, ib).applyMatrix4(mesh.matrixWorld);
+    c.fromBufferAttribute(position, ic).applyMatrix4(mesh.matrixWorld);
+    triNormal.crossVectors(b.clone().sub(a), c.clone().sub(a)).normalize();
+    if (triNormal.dot(hitNormal) > 0.995 && Math.abs(triNormal.dot(a) - planeConst) < eps) {
+      verts.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
+    }
+  }
+  if (!verts.length) { clearHighlight(); return; }
+  clearHighlight();
+  const faceGeo = new THREE.BufferGeometry();
+  faceGeo.setAttribute("position", new THREE.Float32BufferAttribute(verts, 3));
+  faceGeo.computeVertexNormals();
+  highlightMesh = new THREE.Mesh(
+    faceGeo,
+    new THREE.MeshBasicMaterial({
+      color: HIGHLIGHT_COLOR,
+      transparent: true,
+      opacity: 0.45,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    }),
+  );
+  highlightMesh.renderOrder = 8;
+  scene.add(highlightMesh);
+
+  const edge = new THREE.EdgesGeometry(faceGeo, 30);
+  highlightOutline = new THREE.LineSegments(
+    edge,
+    new THREE.LineBasicMaterial({ color: HIGHLIGHT_COLOR, depthTest: false }),
+  );
+  highlightOutline.renderOrder = 9;
+  scene.add(highlightOutline);
+  setStatus("Грань підсвічено");
+}
+
+/* ---------- ЛІНІЙКА: ВИМІРЮВАННЯ ВІДСТАНІ ---------- */
+const measureToggle = document.querySelector("#measureToggle");
+const measureGroup = new THREE.Group();
+measureGroup.name = "measureGroup";
+scene.add(measureGroup);
+let measureStartPoint = null;
+let cachedCornerVertices = null;
+
+/**
+ * Повертає кешовані кутові вершини моделі, щоб лінійка й експорт не перераховували їх щоразу.
+ */
+function getCachedCornerVertices() {
+  if (!cachedCornerVertices) {
+    cachedCornerVertices = gatherCornerVertices();
+  }
+  return cachedCornerVertices;
+}
+
+/**
+ * Прилипає точку вимірювання до найближчої вершини многогранника, якщо вона поруч.
+ */
+function snapToNearestVertex(point) {
+  const corners = getCachedCornerVertices();
+  if (!corners.length || corners.length > 60) {
+    return point;
+  }
+
+  const box = getActiveBounds();
+  const radius = box ? box.getBoundingSphere(new THREE.Sphere()).radius || 1 : 1;
+  let best = null;
+  let bestDistance = radius * 0.14;
+
+  corners.forEach((corner) => {
+    const distance = corner.distanceTo(point);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = corner;
+    }
+  });
+
+  return best ? best.clone() : point;
+}
+
+/**
+ * Створює маленький маркер точки вимірювання.
+ */
+function createMeasureMarker(point, radius) {
+  const marker = new THREE.Mesh(
+    new THREE.SphereGeometry(Math.max(radius * 0.02, 0.02), 16, 16),
+    new THREE.MeshBasicMaterial({ color: 0x3b5bdb, depthTest: false, transparent: true }),
+  );
+  marker.position.copy(point);
+  marker.renderOrder = 11;
+  return marker;
+}
+
+/**
+ * Створює спрайт із текстом на округлій підкладці для підпису відстані.
+ */
+function makeTextSprite(text) {
+  const width = 256;
+  const height = 96;
+  const canvasEl = document.createElement("canvas");
+  canvasEl.width = width;
+  canvasEl.height = height;
+  const ctx = canvasEl.getContext("2d");
+  ctx.clearRect(0, 0, width, height);
+  const r = 26;
+  ctx.beginPath();
+  ctx.moveTo(r, 6);
+  ctx.arcTo(width - 6, 6, width - 6, height - 6, r);
+  ctx.arcTo(width - 6, height - 6, 6, height - 6, r);
+  ctx.arcTo(6, height - 6, 6, 6, r);
+  ctx.arcTo(6, 6, width - 6, 6, r);
+  ctx.closePath();
+  ctx.fillStyle = "rgba(15,23,42,0.88)";
+  ctx.fill();
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = "#3b5bdb";
+  ctx.stroke();
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 44px 'Segoe UI', system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, width / 2, height / 2 + 2);
+  const texture = new THREE.CanvasTexture(canvasEl);
+  texture.anisotropy = 4;
+  const sprite = new THREE.Sprite(
+    new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true }),
+  );
+  sprite.renderOrder = 12;
+  return sprite;
+}
+
+/**
+ * Прибирає всі маркери, лінії та підписи вимірювання.
+ */
+function clearMeasurement() {
+  [...measureGroup.children].forEach((child) => {
+    measureGroup.remove(child);
+    child.geometry?.dispose?.();
+    child.material?.map?.dispose?.();
+    child.material?.dispose?.();
+  });
+  measureStartPoint = null;
+}
+
+/**
+ * Обробляє тап у режимі лінійки: перша точка — маркер, друга — відрізок і відстань.
+ */
+function handleMeasureTap(clientX, clientY) {
+  if (!activeModelRoot) {
+    setStatus("Спершу відкрийте модель");
+    return;
+  }
+
+  const bounds = renderer.domElement.getBoundingClientRect();
+  pointer.x = ((clientX - bounds.left) / bounds.width) * 2 - 1;
+  pointer.y = -((clientY - bounds.top) / bounds.height) * 2 + 1;
+  raycaster.setFromCamera(pointer, camera);
+  const hits = raycaster.intersectObject(activeModelRoot, true).filter((hit) => hit.object.isMesh);
+
+  if (!hits.length) {
+    return;
+  }
+
+  const box = getActiveBounds();
+  const radius = box ? box.getBoundingSphere(new THREE.Sphere()).radius || 1 : 1;
+  const snappedPoint = snapToNearestVertex(hits[0].point.clone());
+
+  if (!measureStartPoint) {
+    clearMeasurement();
+    measureStartPoint = snappedPoint;
+    measureGroup.add(createMeasureMarker(snappedPoint, radius));
+    setStatus("Лінійка: оберіть другу точку");
+    return;
+  }
+
+  const startPoint = measureStartPoint;
+  measureStartPoint = null;
+  measureGroup.add(createMeasureMarker(snappedPoint, radius));
+
+  const lineGeometry = new THREE.BufferGeometry().setFromPoints([startPoint, snappedPoint]);
+  const line = new THREE.Line(
+    lineGeometry,
+    new THREE.LineBasicMaterial({ color: 0x3b5bdb, depthTest: false, transparent: true }),
+  );
+  line.renderOrder = 11;
+  measureGroup.add(line);
+
+  const distance = startPoint.distanceTo(snappedPoint);
+  const label = makeTextSprite(distance.toFixed(2));
+  label.position.copy(startPoint).lerp(snappedPoint, 0.5).add(new THREE.Vector3(0, radius * 0.07, 0));
+  const labelScale = radius * 0.42;
+  label.scale.set(labelScale, labelScale * 0.375, labelScale);
+  measureGroup.add(label);
+  setStatus(`Відстань: ${distance.toFixed(2)} од.`);
+}
+
+/**
+ * Вмикає або вимикає режим лінійки.
+ */
+function setMeasureEnabled(enabled) {
+  if (enabled) {
+    if (!activeModelRoot) {
+      setStatus("Спершу відкрийте модель");
+      if (measureToggle) measureToggle.checked = false;
+      return;
+    }
+    setStatus("Лінійка: торкніться першої точки (вершини прилипають)");
+  } else {
+    clearMeasurement();
+  }
+}
+
+/* ---------- ЕКСПОРТ ВЕРШИН У GEOGEBRA ---------- */
+/**
+ * Формує команди GeoGebra виду A=(x,y,z) для вершин многогранника та копіює їх у буфер обміну.
+ */
+async function exportVerticesToGeoGebra() {
+  if (!activeModelRoot) {
+    setStatus("Спершу відкрийте модель");
+    return;
+  }
+
+  const corners = getCachedCornerVertices();
+  if (!corners.length || corners.length > 24) {
+    setStatus("Експорт вершин доступний лише для многогранників");
+    return;
+  }
+
+  const labels = assignVertexLabels(corners);
+  const commands = labels.map(({ point, text }) => {
+    const name = text.replace("₁", "_1");
+    return `${name}=(${point.x.toFixed(3)},${point.y.toFixed(3)},${point.z.toFixed(3)})`;
+  });
+  const payload = commands.join("\n");
+
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(payload);
+      setStatus(`Скопійовано ${commands.length} команд GeoGebra — вставте їх у рядок вводу GeoGebra`);
+      return;
+    }
+  } catch {
+    // Переходимо до fallback нижче.
+  }
+
+  window.prompt("Скопіюйте команди для GeoGebra:", payload);
+}
+
+/* ---------- ХАРАКТЕРИСТИКА ЕЙЛЕРА (В − Р + Г) ---------- */
+/**
+ * Рахує вершини, ребра і грані многогранника за геометрією моделі.
+ */
+function computePolyhedronStats() {
+  const corners = getCachedCornerVertices();
+  if (corners.length < 4 || corners.length > 24) {
+    return null;
+  }
+
+  const edgeKeys = new Set();
+  activeModelRoot.traverse((node) => {
+    if (!node.isMesh || !node.geometry) return;
+    if (node.userData.isSpatialHelper) return;
+    const edges = new THREE.EdgesGeometry(node.geometry, 25);
+    const position = edges.attributes.position;
+    const pointA = new THREE.Vector3();
+    const pointB = new THREE.Vector3();
+    for (let i = 0; i < position.count; i += 2) {
+      pointA.fromBufferAttribute(position, i).applyMatrix4(node.matrixWorld);
+      pointB.fromBufferAttribute(position, i + 1).applyMatrix4(node.matrixWorld);
+      const keyA = `${pointA.x.toFixed(2)},${pointA.y.toFixed(2)},${pointA.z.toFixed(2)}`;
+      const keyB = `${pointB.x.toFixed(2)},${pointB.y.toFixed(2)},${pointB.z.toFixed(2)}`;
+      edgeKeys.add(keyA < keyB ? `${keyA}|${keyB}` : `${keyB}|${keyA}`);
+    }
+    edges.dispose();
+  });
+
+  const faceKeys = new Set();
+  collectModelTriangles().forEach((tri) => {
+    const normal = new THREE.Vector3()
+      .crossVectors(tri[1].clone().sub(tri[0]), tri[2].clone().sub(tri[0]))
+      .normalize();
+    // Уніфікуємо знак нормалі, щоб обидві орієнтації трикутника давали одну грань.
+    if (normal.x < -0.001 || (Math.abs(normal.x) < 0.001 && normal.y < -0.001)
+      || (Math.abs(normal.x) < 0.001 && Math.abs(normal.y) < 0.001 && normal.z < 0)) {
+      normal.negate();
+    }
+    const planeConstant = normal.dot(tri[0]);
+    faceKeys.add(
+      `${normal.x.toFixed(2)},${normal.y.toFixed(2)},${normal.z.toFixed(2)}|${planeConstant.toFixed(2)}`,
+    );
+  });
+
+  return {
+    vertices: corners.length,
+    edges: edgeKeys.size,
+    faces: faceKeys.size,
+  };
+}
+
+/**
+ * Оновлює рядок В/Р/Г та характеристику Ейлера в картці моделі.
+ */
+function updateEulerInfo() {
+  const eulerElement = modelInfoCard?.querySelector(".info-euler");
+  if (!eulerElement) {
+    return;
+  }
+
+  const stats = activeModelRoot ? computePolyhedronStats() : null;
+  if (!stats) {
+    eulerElement.textContent = "";
+    return;
+  }
+
+  const euler = stats.vertices - stats.edges + stats.faces;
+  const checkMark = euler === 2 ? " ✓" : "";
+  eulerElement.textContent =
+    `Вершини: ${stats.vertices} · Ребра: ${stats.edges} · Грані: ${stats.faces}`
+    + ` · В−Р+Г=${euler}${checkMark}`;
+}
+
+/* ---------- АВТО-ОБЕРТАННЯ ---------- */
+const autoRotateToggle = document.querySelector("#autoRotateToggle");
+
+/**
+ * Вмикає повільне автоматичне обертання камери навколо фігури.
+ */
+function setAutoRotateEnabled(enabled) {
+  controls.autoRotate = enabled;
+  controls.autoRotateSpeed = 1.6;
+}
+
+/* ---------- ПОДІЇ ---------- */
+function bindSpatialToolEvents() {
+  labelsToggle?.addEventListener("change", () => setLabelsEnabled(labelsToggle.checked));
+  highlightToggle?.addEventListener("change", () => {
+    if (!highlightToggle.checked) clearHighlight();
+  });
+  sectionToggle?.addEventListener("change", () => setSectionEnabled(sectionToggle.checked));
+  measureToggle?.addEventListener("change", () => setMeasureEnabled(measureToggle.checked));
+  autoRotateToggle?.addEventListener("change", () => setAutoRotateEnabled(autoRotateToggle.checked));
+  document.querySelector("#exportGgbButton")?.addEventListener("click", exportVerticesToGeoGebra);
+
+  sectionAxisButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      sectionAxisButtons.forEach((b) => b.classList.remove("is-active"));
+      btn.classList.add("is-active");
+      sectionState.axis = btn.dataset.axis;
+      if (sectionState.enabled) buildSectionVisual();
+    });
+  });
+  sectionPositionSlider?.addEventListener("input", () => {
+    sectionState.position = Number(sectionPositionSlider.value);
+    if (sectionState.enabled) buildSectionVisual();
+  });
+  sectionTiltSlider?.addEventListener("input", () => {
+    sectionState.tiltDeg = Number(sectionTiltSlider.value);
+    if (sectionState.enabled) buildSectionVisual();
+  });
+  sectionPlaneToggle?.addEventListener("change", () => {
+    sectionState.showPlane = sectionPlaneToggle.checked;
+    if (sectionState.enabled) buildSectionVisual();
+  });
+
+  renderer.domElement.addEventListener("pointerdown", (event) => {
+    pointerDownInfo = { x: event.clientX, y: event.clientY, time: performance.now() };
+  });
+  renderer.domElement.addEventListener("pointerup", (event) => {
+    const isMeasureActive = Boolean(measureToggle?.checked);
+    const isHighlightActive = Boolean(highlightToggle?.checked);
+    if ((!isMeasureActive && !isHighlightActive) || !pointerDownInfo) return;
+    const dx = event.clientX - pointerDownInfo.x;
+    const dy = event.clientY - pointerDownInfo.y;
+    const moved = Math.hypot(dx, dy);
+    const elapsed = performance.now() - pointerDownInfo.time;
+    pointerDownInfo = null;
+    if (moved < 7 && elapsed < 500) {
+      if (isMeasureActive) {
+        handleMeasureTap(event.clientX, event.clientY);
+      } else {
+        highlightFaceAt(event.clientX, event.clientY);
+      }
+    }
+  });
+
+  window.addEventListener("keydown", (event) => {
+    const key = event.key.toLowerCase();
+    if (key === "c") {
+      if (sectionToggle) {
+        sectionToggle.checked = !sectionToggle.checked;
+        setSectionEnabled(sectionToggle.checked);
+      }
+    } else if (key === "l") {
+      if (labelsToggle) {
+        labelsToggle.checked = !labelsToggle.checked;
+        setLabelsEnabled(labelsToggle.checked);
+      }
+    } else if (key === "m") {
+      if (measureToggle) {
+        measureToggle.checked = !measureToggle.checked;
+        setMeasureEnabled(measureToggle.checked);
+      }
+    } else if (key === "a") {
+      if (autoRotateToggle) {
+        autoRotateToggle.checked = !autoRotateToggle.checked;
+        setAutoRotateEnabled(autoRotateToggle.checked);
+      }
+    }
+  });
+}
+
+bindSpatialToolEvents();
+
+/* ---------- ЗАВАНТАЖЕННЯ ТА ДОВІДКА ---------- */
+function showLoadingOverlay(isVisible) {
+  const overlay = document.querySelector("#loadingOverlay");
+  if (!overlay) return;
+  overlay.classList.toggle("is-hidden", !isVisible);
+  overlay.setAttribute("aria-hidden", isVisible ? "false" : "true");
+}
+
+function bindHelpAndLoading() {
+  const helpButton = document.querySelector("#helpButton");
+  const helpOverlay = document.querySelector("#helpOverlay");
+  const helpClose = document.querySelector("#helpClose");
+  const openHelp = () => helpOverlay?.classList.remove("is-hidden");
+  const closeHelp = () => helpOverlay?.classList.add("is-hidden");
+  helpButton?.addEventListener("click", openHelp);
+  helpClose?.addEventListener("click", closeHelp);
+  helpOverlay?.addEventListener("click", (event) => {
+    if (event.target === helpOverlay) closeHelp();
+  });
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeHelp();
+    else if (event.key === "?" || (event.key.toLowerCase() === "h" && !event.ctrlKey && !event.metaKey)) {
+      if (helpOverlay?.classList.contains("is-hidden")) openHelp();
+      else closeHelp();
+    }
+  });
+}
+
+bindHelpAndLoading();
+
+/* ---------- ОФЛАЙН-РЕЖИМ (SERVICE WORKER) ---------- */
+if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(() => undefined);
+  });
 }
