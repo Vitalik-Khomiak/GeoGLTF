@@ -159,6 +159,14 @@ function createControls(targetCamera, domElement) {
     MIDDLE: THREE.MOUSE.DOLLY,
     RIGHT: THREE.MOUSE.PAN,
   };
+  // На дотику зсув вимкнено навмисно. Стандартний DOLLY_PAN зсуває фігуру
+  // разом зі щипком, і на телефоні вона легко виїжджає за межі кадру —
+  // а повернути її можна лише кнопкою «Центр». Щипок і далі масштабує,
+  // двома пальцями фігура обертається. Мишею зсув лишається (права кнопка).
+  nextControls.touches = {
+    ONE: THREE.TOUCH.ROTATE,
+    TWO: THREE.TOUCH.DOLLY_ROTATE,
+  };
   nextControls.target.set(0, 0, 0);
   return nextControls;
 }
@@ -2651,25 +2659,26 @@ function syncMobileViewportHeight() {
   const viewportHeight = visualViewport?.height ?? window.innerHeight;
   const viewportOffsetTop = visualViewport?.offsetTop ?? 0;
   const panelBounds = viewerPanel.getBoundingClientRect();
-  const wrapperBounds = dropZone.getBoundingClientRect();
   const viewportBottomInset = Math.max(
     0,
     Math.round(window.innerHeight - viewportHeight - viewportOffsetTop),
   );
   const bottomInset = 12 + viewportBottomInset;
-  const availableHeight = Math.max(
-    320,
-    Math.floor(viewportHeight - wrapperBounds.top - bottomInset),
-  );
   const panelHeight = Math.max(
+    320,
     Math.floor(viewportHeight - panelBounds.top - bottomInset),
-    availableHeight,
   );
 
   viewerPanel.style.minHeight = `${panelHeight}px`;
   viewerPanel.style.height = `${panelHeight}px`;
-  dropZone.style.minHeight = `${availableHeight}px`;
-  dropZone.style.height = `${availableHeight}px`;
+
+  // Висоту canvas тут НЕ задаємо. `.viewer-canvas-wrapper` має `flex: 1`
+  // і сам займає те, що лишилось у панелі після доку. Явна висота
+  // (viewportHeight − top) забирала всю панель під canvas і виштовхувала
+  // док із кнопками за межі екрана: `#appShell` фіксований, body не
+  // скролиться, тож на телефоні панель інструментів ставала недосяжною.
+  dropZone.style.height = "";
+  dropZone.style.minHeight = "";
 }
 
 /**
@@ -2940,7 +2949,9 @@ function bindEnhancementEvents() {
   document.addEventListener("fullscreenchange", () => {
     setTimeout(() => {
       resizeRenderer();
-      syncViewerLayout({ reframeModel: false, preserveView: true });
+      // Пропорції екрана міняються стрибком, тож модель треба вписати заново —
+      // інакше після переходу вона лишається обрізаною по краю кадру.
+      syncViewerLayout({ reframeModel: true, preserveView: true });
     }, 80);
   });
   window.addEventListener("keydown", (event) => {
