@@ -1,7 +1,12 @@
 /*
  * GeoGLTF Viewer — увесь застосунок в одному ES-модулі.
- * Карта блоків, життєвий цикл моделі та підводні камені: див. ARCHITECTURE.md.
- * Правила внесення змін (кеш SW, TDZ, dispose): див. ARCHITECTURE.md, §8.
+ *
+ * Два правила, які найлегше порушити при правках:
+ *  - константи просторових інструментів оголошені в кінці файла, тому
+ *    ініціалізаційний блок угорі не має права синхронно викликати те, що
+ *    їх читає, — інакше TDZ і модуль мовчки падає цілком;
+ *  - будь-яка зміна коду вимагає підняти версію CACHE у sw.js, інакше
+ *    клієнти й далі працюватимуть зі старою версією з офлайн-кеша.
  */
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -858,10 +863,12 @@ function prepareThumbnailModel(modelRoot) {
       return;
     }
 
+    const hadSourceNormals = ensureVertexNormals(node.geometry);
     node.material = new THREE.MeshPhongMaterial({
       color: 0xb78155,
       side: THREE.DoubleSide,
       shininess: 14,
+      flatShading: !hadSourceNormals,
     });
   });
 }
@@ -1203,6 +1210,32 @@ function containsRenderableMesh(root) {
 }
 
 /**
+ * Дораховує нормалі, якщо у файлі моделі їх немає.
+ *
+ * Без атрибута `normal` освітлення для поверхні не рахується, і фігура
+ * рендериться чорним силуетом. Так поводяться .glb, збережені
+ * генераторами, які не пишуть нормалі (у нашій бібліотеці це конус
+ * і дві призми, зроблені через trimesh).
+ *
+ * Повертає true, якщо нормалі у файлі БУЛИ. Для дорахованих нормалей
+ * повертає false: у таких моделей вершини зварені, тож усереднені
+ * нормалі дали б згладжене затінення замість чітких граней — тому
+ * матеріалам для них додатково вмикається flatShading.
+ */
+function ensureVertexNormals(geometry) {
+  if (!geometry || !geometry.attributes?.position) {
+    return true;
+  }
+
+  if (geometry.attributes.normal) {
+    return true;
+  }
+
+  geometry.computeVertexNormals();
+  return false;
+}
+
+/**
  * Готує матеріали та тіні моделі, щоб вона коректно читалась у сцені.
  */
 function prepareModel(modelRoot) {
@@ -1211,6 +1244,7 @@ function prepareModel(modelRoot) {
       return;
     }
 
+    node.userData.hadSourceNormals = ensureVertexNormals(node.geometry);
     node.castShadow = true;
     node.receiveShadow = true;
     node.userData.originalMaterial = node.material;
@@ -2271,7 +2305,10 @@ function enableMathStyle(mesh) {
   const originalMaterial = mesh.userData.originalMaterial ?? mesh.material;
 
   if (!mesh.userData.mathMaterial) {
-    mesh.userData.mathMaterial = createMathFaceMaterial(originalMaterial);
+    mesh.userData.mathMaterial = createMathFaceMaterial(
+      originalMaterial,
+      mesh.userData.hadSourceNormals !== false,
+    );
   }
 
   mesh.material = mesh.userData.mathMaterial;
@@ -2297,7 +2334,7 @@ function disableMathStyle(mesh) {
 /**
  * Створює пласку напівпрозору заливку для стилю, наближеного до підручників і GeoGebra.
  */
-function createMathFaceMaterial(sourceMaterial) {
+function createMathFaceMaterial(sourceMaterial, hadSourceNormals = true) {
   const baseColor = Array.isArray(sourceMaterial)
     ? sourceMaterial[0]?.color
     : sourceMaterial?.color;
@@ -2308,6 +2345,7 @@ function createMathFaceMaterial(sourceMaterial) {
     opacity: mathStyle.faceOpacity,
     shininess: 10,
     side: THREE.DoubleSide,
+    flatShading: !hadSourceNormals,
     polygonOffset: true,
     polygonOffsetFactor: 1,
     polygonOffsetUnits: 1,
