@@ -2758,11 +2758,27 @@ function animate() {
   controls.update();
   maintainSpatialTools();
   gizmoRoot.quaternion.copy(camera.quaternion).invert();
-  renderer.setViewport(0, 0, renderer.domElement.width, renderer.domElement.height);
+  applyFullViewport();
   renderer.setScissorTest(false);
   renderer.clear();
   renderer.render(scene, camera);
   renderViewGizmo();
+}
+
+/**
+ * Повертає viewport на весь канвас.
+ *
+ * `setViewport` приймає CSS-пікселі й сам множить їх на pixelRatio. Тому сюди
+ * НЕ можна передавати `domElement.width/height` — це розмір буфера, тобто вже
+ * помножений на pixelRatio. На телефоні (pixelRatio 2) viewport виходив удвічі
+ * більшим за буфер, і оскільки початок координат WebGL — лівий нижній кут,
+ * на екран потрапляла лише ліва нижня чверть кадру: модель зміщувалась
+ * у правий верхній кут і обрізалась. На десктопі з pixelRatio 1 різниці немає,
+ * тому баг був видимий тільки на мобільних.
+ */
+function applyFullViewport() {
+  const size = renderer.getSize(new THREE.Vector2());
+  renderer.setViewport(0, 0, size.x, size.y);
 }
 
 /**
@@ -2855,7 +2871,7 @@ function toggleFullscreen() {
 function captureScreenshot() {
   try {
     renderer.setScissorTest(false);
-    renderer.setViewport(0, 0, renderer.domElement.width, renderer.domElement.height);
+    applyFullViewport();
     renderer.clear();
     renderer.render(scene, camera);
     const dataUrl = renderer.domElement.toDataURL("image/png");
