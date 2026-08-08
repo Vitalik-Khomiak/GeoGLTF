@@ -1409,12 +1409,36 @@ function getSupportedUnfoldType(asset) {
     .join(" ")
     .toLowerCase();
 
-  if (source.includes("cube_slice") || source.includes("зріз")) {
+  // Спершу відсікаємо те, що розгортки мати НЕ може, інакше нижчі правила
+  // спрацюють за випадковим збігом кореня і побудують чужу розгортку.
+  // Тіла зі зрізом: розгортати можна лише ціле тіло.
+  if (source.includes("slice") || source.includes("зріз")) {
     return null;
   }
 
+  // Моделі з двома тілами: «Два циліндри…» містить корінь «цилінд»,
+  // «Два подібні конуси» — корінь «конус», тож без цього правила застосунок
+  // побудував би розгортку ОДНОГО тіла поверх моделі з двома.
+  if (source.includes("_pair") || source.includes("_similar") || source.startsWith("два ")) {
+    return null;
+  }
+
+  if (source.includes("паралелепіпед") || source.includes("parallelepiped")) {
+    return "box";
+  }
+
+  if (source.includes("чотирикутна призма") || source.includes("prism_square")) {
+    return "box";
+  }
+
   if (source.includes("cube.glb") || source.includes("куб")) {
-    return "cube";
+    return "box";
+  }
+
+  // Правильний тетраедр — окремий випадок правильної трикутної піраміди,
+  // тип основи визначить авто-детект за відношенням z/x.
+  if (source.includes("тетраедр") || source.includes("tetrahedron")) {
+    return "pyramid";
   }
 
   if (source.includes("piramide") || source.includes("пірамід") || source.includes("pyramid")) {
@@ -1631,8 +1655,8 @@ function buildUnfoldController(unfoldType, modelRoot) {
   const bounds = new THREE.Box3().setFromObject(modelRoot);
   const size = bounds.getSize(new THREE.Vector3());
 
-  if (unfoldType === "cube") {
-    return buildCubeUnfoldController(size);
+  if (unfoldType === "box") {
+    return buildBoxUnfoldController(size);
   }
 
   if (unfoldType === "pyramid") {
@@ -1664,63 +1688,69 @@ function buildUnfoldController(unfoldType, modelRoot) {
 }
 
 /**
- * Створює розгортку куба у вигляді хреста на площині.
+ * Створює розгортку прямокутної коробки у вигляді хреста на площині.
+ *
+ * Обслуговує куб, прямокутний паралелепіпед і правильну чотирикутну призму.
  */
-function buildCubeUnfoldController(size) {
-  const side = Math.max(size.x, size.y, size.z, 1);
+function buildBoxUnfoldController(size) {
+  // Кожен вимір окремо: паралелепіпед і правильна чотирикутна призма мають
+  // прямокутні грані. Для куба width = height = depth, тож поведінка та сама.
+  const width = Math.max(size.x, 0.01);
+  const height = Math.max(size.y, 0.01);
+  const depth = Math.max(size.z, 0.01);
   const group = new THREE.Group();
   group.name = "unfoldGroup";
   const faces = [];
-  const createSquareFace = () => {
-    const face = createUnfoldFace(new THREE.PlaneGeometry(side, side));
+  const createFace = (faceWidth, faceHeight) => {
+    const face = createUnfoldFace(new THREE.PlaneGeometry(faceWidth, faceHeight));
     faces.push(face);
     return face;
   };
 
-  const baseFace = createSquareFace();
+  const baseFace = createFace(width, depth);
   baseFace.mesh.rotation.x = -Math.PI / 2;
   group.add(baseFace.mesh);
 
   const northPivot = new THREE.Group();
-  northPivot.position.set(0, 0, -side / 2);
+  northPivot.position.set(0, 0, -depth / 2);
   group.add(northPivot);
 
-  const northFace = createSquareFace();
-  northFace.mesh.position.set(0, side / 2, 0);
+  const northFace = createFace(width, height);
+  northFace.mesh.position.set(0, height / 2, 0);
   northPivot.add(northFace.mesh);
 
   const topPivot = new THREE.Group();
-  topPivot.position.set(0, side / 2, 0);
+  topPivot.position.set(0, height / 2, 0);
   northFace.mesh.add(topPivot);
 
-  const topFace = createSquareFace();
-  topFace.mesh.position.set(0, side / 2, 0);
+  const topFace = createFace(width, depth);
+  topFace.mesh.position.set(0, depth / 2, 0);
   topPivot.add(topFace.mesh);
 
   const southPivot = new THREE.Group();
-  southPivot.position.set(0, 0, side / 2);
+  southPivot.position.set(0, 0, depth / 2);
   group.add(southPivot);
 
-  const southFace = createSquareFace();
-  southFace.mesh.position.set(0, side / 2, 0);
+  const southFace = createFace(width, height);
+  southFace.mesh.position.set(0, height / 2, 0);
   southFace.mesh.rotation.y = Math.PI;
   southPivot.add(southFace.mesh);
 
   const westPivot = new THREE.Group();
-  westPivot.position.set(-side / 2, 0, 0);
+  westPivot.position.set(-width / 2, 0, 0);
   group.add(westPivot);
 
-  const westFace = createSquareFace();
-  westFace.mesh.position.set(0, side / 2, 0);
+  const westFace = createFace(depth, height);
+  westFace.mesh.position.set(0, height / 2, 0);
   westFace.mesh.rotation.y = -Math.PI / 2;
   westPivot.add(westFace.mesh);
 
   const eastPivot = new THREE.Group();
-  eastPivot.position.set(side / 2, 0, 0);
+  eastPivot.position.set(width / 2, 0, 0);
   group.add(eastPivot);
 
-  const eastFace = createSquareFace();
-  eastFace.mesh.position.set(0, side / 2, 0);
+  const eastFace = createFace(depth, height);
+  eastFace.mesh.position.set(0, height / 2, 0);
   eastFace.mesh.rotation.y = Math.PI / 2;
   eastPivot.add(eastFace.mesh);
 
@@ -2920,8 +2950,14 @@ async function shareCurrentModel() {
   window.prompt("Скопіюйте посилання на модель:", url);
 }
 
+// Порядок має значення: береться ПЕРШИЙ збіг, тому вужчі записи стоять вище.
+// Інакше «Два подібні конуси» дістали б загальне запитання про переріз конуса.
 const MODEL_QUESTIONS = [
   { keys: ["зріз", "slice", "переріз"], text: "Яка форма перерізу? Скільки граней перетинає площина?" },
+  { keys: ["_pair", "два цилінд"], text: "Основи однакові, висоти різні. Що в перерізах зміниться, а що ні?" },
+  { keys: ["_similar", "подібні конус"], text: "Усі розміри більші вдвічі. У скільки разів більші площа поверхні та об'єм?" },
+  { keys: ["паралелепіпед", "parallelepiped"], text: "Чим паралелепіпед відрізняється від куба? Чи рівні між собою його діагоналі?" },
+  { keys: ["тетраедр", "tetrahedron"], text: "Чим тетраедр відрізняється від інших трикутних пірамід?" },
   { keys: ["куб", "cube"], text: "Скільки граней, ребер і вершин? Що не змінюється при обертанні?" },
   { keys: ["цилінд", "cylind"], text: "Якою фігурою утворено циліндр обертанням?" },
   { keys: ["конус", "cone"], text: "Як змінюється форма перерізу конуса при нахилі площини?" },

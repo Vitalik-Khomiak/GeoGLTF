@@ -13,22 +13,52 @@
       "sizeLabel": "3.05 KB"
     },
     {
-      "title": "Трикутна призма",
-      "description": "Многогранник для теми призм: основи, бічні грані, паралельні та мимобіжні ребра.",
+      "title": "Прямокутний паралелепіпед",
+      "description": "Три різні виміри: для порівняння з кубом і доведень про діагоналі.",
+      "file": "./assets/models/parallelepiped.glb",
+      "sizeLabel": "1.61 KB"
+    },
+    {
+      "title": "Правильна трикутна призма",
+      "description": "Основа — рівносторонній трикутник. Для тем мимобіжних ребер і перерізів.",
       "file": "./assets/models/prism_tri.glb",
       "sizeLabel": "0.88 KB"
     },
     {
-      "title": "Шестикутна призма",
-      "description": "Правильна призма для аналізу основ, діагоналей і бічної поверхні.",
+      "title": "Правильна чотирикутна призма",
+      "description": "Квадратна основа, висота більша за сторону основи. Не куб.",
+      "file": "./assets/models/prism_square.glb",
+      "sizeLabel": "1.60 KB"
+    },
+    {
+      "title": "Правильна шестикутна призма",
+      "description": "Для аналізу основ, діагоналей і бічної поверхні.",
       "file": "./assets/models/prism_hex.glb",
       "sizeLabel": "1.09 KB"
     },
     {
-      "title": "Піраміда",
-      "description": "Модель для теми многогранників і висоти.",
+      "title": "Трикутна призма зі зрізом",
+      "description": "Тіло із заготовленим похилим перерізом: спостереження перед побудовою.",
+      "file": "./assets/models/prism_tri_slice.glb",
+      "sizeLabel": "2.07 KB"
+    },
+    {
+      "title": "Правильна трикутна піраміда",
+      "description": "Основа — рівносторонній трикутник, вершина над центром. Не тетраедр.",
       "file": "./assets/models/Piramide.glb",
       "sizeLabel": "1.30 KB"
+    },
+    {
+      "title": "Правильна чотирикутна піраміда",
+      "description": "Квадратна основа, вершина над центром. Бічні грані рівнобедрені.",
+      "file": "./assets/models/pyramid_square.glb",
+      "sizeLabel": "1.38 KB"
+    },
+    {
+      "title": "Правильний тетраедр",
+      "description": "Усі шість ребер рівні, усі грані — рівносторонні трикутники.",
+      "file": "./assets/models/tetrahedron.glb",
+      "sizeLabel": "1.27 KB"
     },
     {
       "title": "Циліндр",
@@ -37,10 +67,22 @@
       "sizeLabel": "4.23 KB"
     },
     {
+      "title": "Два циліндри різної висоти",
+      "description": "Однакові основи, висоти 1 і 2: для порівняння перерізів.",
+      "file": "./assets/models/cylinders_pair.glb",
+      "sizeLabel": "11.98 KB"
+    },
+    {
       "title": "Конус",
       "description": "Тіло обертання для аналізу перерізів: коло, еліпс, трикутник через вершину.",
       "file": "./assets/models/cone.glb",
       "sizeLabel": "2.44 KB"
+    },
+    {
+      "title": "Два подібні конуси",
+      "description": "Коефіцієнт подібності k = 2: для залежності площі й об'єму від k.",
+      "file": "./assets/models/cones_similar.glb",
+      "sizeLabel": "8.25 KB"
     },
     {
       "title": "Сфера",

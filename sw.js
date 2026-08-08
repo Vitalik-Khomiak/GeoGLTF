@@ -1,5 +1,5 @@
 /* GeoGLTF service worker — офлайн-кеш коду, бібліотеки three.js та моделей. */
-const CACHE = "geogltf-v7";
+const CACHE = "geogltf-v9";
 
 const PRECACHE = [
   "./",
@@ -15,11 +15,18 @@ const PRECACHE = [
   "./assets/vendor/three/addons/utils/BufferGeometryUtils.js",
   "./assets/models/cube.glb",
   "./assets/models/cube_slice.glb",
+  "./assets/models/parallelepiped.glb",
   "./assets/models/prism_tri.glb",
+  "./assets/models/prism_square.glb",
   "./assets/models/prism_hex.glb",
+  "./assets/models/prism_tri_slice.glb",
   "./assets/models/Piramide.glb",
+  "./assets/models/pyramid_square.glb",
+  "./assets/models/tetrahedron.glb",
   "./assets/models/Cylynder.glb",
+  "./assets/models/cylinders_pair.glb",
   "./assets/models/cone.glb",
+  "./assets/models/cones_similar.glb",
   "./assets/models/sphere.glb",
 ];
 
