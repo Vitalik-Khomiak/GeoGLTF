@@ -84,6 +84,32 @@ console.log("Зшивання контурів");
   check("два окремі тіла -> два контури", loops.length === 2, `контурів: ${loops.length}`);
   check("обидва замкнені", loops.every((l) => l.closed));
 }
+{
+  // Дотичні тіла: два трикутники, що мають рівно одну спільну точку P0.
+  // У P0 сходяться чотири відрізки (по два з кожного трикутника) — вершина
+  // ступеня 4. Порядок навмисно чергує ребра обох трикутників, а не йде
+  // послідовно по кожному, щоб відтворити реальну неоднозначність.
+  const P0 = new THREE.Vector3(0, 0, 0);
+  const P1 = new THREE.Vector3(2, 0, 0);
+  const P2 = new THREE.Vector3(0, 2, 0);
+  const P3 = new THREE.Vector3(-1, -2, 0);
+  const P4 = new THREE.Vector3(-2, -1, 0);
+  const tangent = [[P1, P2], [P3, P4], [P2, P0], [P4, P0], [P0, P1], [P0, P3]];
+  const loops = app.stitchSectionLoops(tangent);
+  check("дотичні тіла -> два контури", loops.length === 2, `контурів: ${loops.length}`);
+  check("обидва трикутники замкнені", loops.length === 2 && loops.every((l) => l.closed && l.points.length === 3));
+}
+{
+  // Незамкнений ланцюг: кінці не сходяться, контур лишається відкритим.
+  const chain = [
+    [new THREE.Vector3(0, 0, 0), new THREE.Vector3(1, 0.4, 0)],
+    [new THREE.Vector3(1, 0.4, 0), new THREE.Vector3(2, 0, 0)],
+    [new THREE.Vector3(2, 0, 0), new THREE.Vector3(3, 0.6, 0)],
+  ];
+  const loops = app.stitchSectionLoops(chain);
+  check("незамкнений ланцюг -> closed === false", loops.length === 1 && loops[0].closed === false, `closed: ${loops[0]?.closed}`);
+  check("усі чотири точки на місці", loops[0]?.points.length === 4, `${loops[0]?.points.length}`);
+}
 
 if (failures) {
   console.error(`\n${failures} перевірок провалено.`);
