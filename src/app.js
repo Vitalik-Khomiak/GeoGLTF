@@ -3058,7 +3058,7 @@ const sectionPositionSlider = document.querySelector("#sectionPositionSlider");
 const sectionTiltSlider = document.querySelector("#sectionTiltSlider");
 const sectionPlaneToggle = document.querySelector("#sectionPlaneToggle");
 
-const sectionState = { enabled: false, axis: "y", position: 0, tiltDeg: 0, showPlane: true };
+const sectionState = { enabled: false, axis: "y", position: 0, tiltDeg: 0, azimuthDeg: 0, showPlane: true };
 const clipPlanes = [];
 const clipPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const sectionGroup = new THREE.Group();
@@ -3098,24 +3098,35 @@ function getActiveBounds() {
   return new THREE.Box3().setFromObject(activeModelRoot);
 }
 
+/**
+ * Нормаль січної площини: базова вісь, нахил навколо перпендикулярної осі,
+ * потім поворот навколо самої базової осі.
+ *
+ * Третій кут (азимут) не косметичний. Без нього множина досяжних нормалей
+ * вироджується у два великі кола, і напрямок (1,1,1) — правильний шестикутник
+ * у перерізі куба — недосяжний: найкраще наближення хибить на 35,3°.
+ */
+function computeSectionNormal(axis, tiltDeg, azimuthDeg) {
+  const base = axis === "x"
+    ? new THREE.Vector3(1, 0, 0)
+    : axis === "z"
+      ? new THREE.Vector3(0, 0, 1)
+      : new THREE.Vector3(0, 1, 0);
+  const tiltAxis = axis === "y" ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+  return base
+    .clone()
+    .applyAxisAngle(tiltAxis, THREE.MathUtils.degToRad(tiltDeg))
+    .applyAxisAngle(base, THREE.MathUtils.degToRad(azimuthDeg))
+    .normalize();
+}
+
 function computeSectionGeometry() {
   const box = getActiveBounds();
   if (!box) return null;
   const center = box.getCenter(new THREE.Vector3());
   const sphere = box.getBoundingSphere(new THREE.Sphere());
   const radius = sphere.radius || 1;
-  const baseNormal = sectionState.axis === "x"
-    ? new THREE.Vector3(1, 0, 0)
-    : sectionState.axis === "z"
-      ? new THREE.Vector3(0, 0, 1)
-      : new THREE.Vector3(0, 1, 0);
-  const tiltAxis = sectionState.axis === "y"
-    ? new THREE.Vector3(1, 0, 0)
-    : new THREE.Vector3(0, 1, 0);
-  const normal = baseNormal
-    .clone()
-    .applyAxisAngle(tiltAxis, THREE.MathUtils.degToRad(sectionState.tiltDeg))
-    .normalize();
+  const normal = computeSectionNormal(sectionState.axis, sectionState.tiltDeg, sectionState.azimuthDeg);
   const point = center
     .clone()
     .add(normal.clone().multiplyScalar((sectionState.position / 100) * radius));
