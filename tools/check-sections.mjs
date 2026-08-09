@@ -31,7 +31,7 @@ function extract(name) {
   return source.slice(start, i + 1);
 }
 
-const NAMES = ["computeSectionNormal"];
+const NAMES = ["computeSectionNormal", "stitchSectionLoops"];
 const factory = new Function("THREE", `${NAMES.map(extract).join("\n")}
   return { ${NAMES.join(", ")} };`);
 const app = factory(THREE);
@@ -55,6 +55,34 @@ console.log("Нормаль площини");
   const target = new THREE.Vector3(1, 1, 1).normalize();
   check("нахил 54,7° + азимут 45° -> (1,1,1)", n.angleTo(target) < 0.001,
     `відхилення ${(n.angleTo(target) * 180 / Math.PI).toFixed(3)}°`);
+}
+
+console.log("Зшивання контурів");
+{
+  const square = [
+    [new THREE.Vector3(0, 0, 0), new THREE.Vector3(1, 0, 0)],
+    [new THREE.Vector3(1, 0, 1), new THREE.Vector3(1, 0, 0)],
+    [new THREE.Vector3(1, 0, 1), new THREE.Vector3(0, 0, 1)],
+    [new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, 0)],
+  ];
+  const loops = app.stitchSectionLoops(square);
+  check("чотири відрізки -> один замкнений контур", loops.length === 1 && loops[0].closed, `контурів: ${loops.length}`);
+  check("контур має 4 точки", loops[0]?.points.length === 4, `${loops[0]?.points.length}`);
+}
+{
+  // Два незалежні квадрати не сміють злитися в один контур:
+  // саме на цьому ламалися парні моделі.
+  const shift = (v) => new THREE.Vector3(v.x + 10, v.y, v.z);
+  const one = [
+    [new THREE.Vector3(0, 0, 0), new THREE.Vector3(1, 0, 0)],
+    [new THREE.Vector3(1, 0, 0), new THREE.Vector3(1, 0, 1)],
+    [new THREE.Vector3(1, 0, 1), new THREE.Vector3(0, 0, 1)],
+    [new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, 0)],
+  ];
+  const two = one.map((s) => s.map(shift));
+  const loops = app.stitchSectionLoops([...one, ...two]);
+  check("два окремі тіла -> два контури", loops.length === 2, `контурів: ${loops.length}`);
+  check("обидва замкнені", loops.every((l) => l.closed));
 }
 
 if (failures) {

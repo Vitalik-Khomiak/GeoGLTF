@@ -3245,6 +3245,56 @@ function buildSectionVisual() {
   void center;
 }
 
+/**
+ * Зшиває відрізки перетину в замкнені контури за збігом кінців.
+ *
+ * Заміна кутовому сортуванню навколо спільного центроїда. Сортування давало
+ * правильний результат лише для одного опуклого контуру: два тіла в сцені
+ * зливалися в «метелик», а неопуклий контур перекручувався. Зшивання працює
+ * від топології — кожен відрізок є ребром многокутника.
+ */
+function stitchSectionLoops(segments, epsilon = 1e-4) {
+  const keyOf = (p) => `${Math.round(p.x / epsilon)}|${Math.round(p.y / epsilon)}|${Math.round(p.z / epsilon)}`;
+  const usable = segments.filter((seg) => keyOf(seg[0]) !== keyOf(seg[1]));
+
+  const ends = new Map();
+  usable.forEach((seg, index) => {
+    for (const end of [0, 1]) {
+      const key = keyOf(seg[end]);
+      if (!ends.has(key)) ends.set(key, []);
+      ends.get(key).push({ index, end });
+    }
+  });
+
+  const used = new Array(usable.length).fill(false);
+  const loops = [];
+
+  for (let i = 0; i < usable.length; i += 1) {
+    if (used[i]) continue;
+    used[i] = true;
+    const points = [usable[i][0], usable[i][1]];
+    let tail = usable[i][1];
+    let closed = false;
+
+    for (let guard = 0; guard <= usable.length; guard += 1) {
+      const next = (ends.get(keyOf(tail)) || []).find((ref) => !used[ref.index]);
+      if (!next) break;
+      used[next.index] = true;
+      const point = usable[next.index][1 - next.end];
+      if (keyOf(point) === keyOf(points[0])) {
+        closed = true;
+        break;
+      }
+      points.push(point);
+      tail = point;
+    }
+
+    if (points.length >= 3) loops.push({ points, closed });
+  }
+
+  return loops;
+}
+
 function buildSectionFillGeometry(points, normal, origin) {
   if (points.length < 6) return null;
   // Базис у площині перерізу.
