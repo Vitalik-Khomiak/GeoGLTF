@@ -110,6 +110,38 @@ console.log("Зшивання контурів");
   check("незамкнений ланцюг -> closed === false", loops.length === 1 && loops[0].closed === false, `closed: ${loops[0]?.closed}`);
   check("усі чотири точки на місці", loops[0]?.points.length === 4, `${loops[0]?.points.length}`);
 }
+{
+  // Хорда між двома вершинами розгалуження: P0-Q0 з'єднує напряму дві точки,
+  // кожна з яких сама по собі вершина ступеня 4 (три трикутники: P0-Q0-A,
+  // P0-C-D, Q0-E-F). Обидва кінці цього відрізка неоднозначні одночасно,
+  // і жоден іще не має встановленого напрямку повороту — це єдиний спосіб
+  // реально дістатися вибору за геометрією в коді (без цієї перевірки він
+  // лишається невиконаним жодного разу, навіть у стрес-перевірках з
+  // десятками тіл довкола однієї спільної точки).
+  const P0 = new THREE.Vector3(0, 0, 0);
+  const Q0 = new THREE.Vector3(4, 0, 0);
+  const A = new THREE.Vector3(2, 3, 0);
+  const C = new THREE.Vector3(-2, 1, 0);
+  const D = new THREE.Vector3(-2, -1, 0);
+  const E = new THREE.Vector3(6, 1, 0);
+  const F = new THREE.Vector3(6, -2, 0);
+  const chord = [
+    [P0, Q0],
+    [Q0, A], [A, P0],
+    [P0, C], [C, D], [D, P0],
+    [Q0, E], [E, F], [F, Q0],
+  ];
+  const loops = app.stitchSectionLoops(chord);
+  const hasSelfCrossing = loops.some((l) => {
+    const keys = l.points.map((p) => `${p.x}|${p.y}|${p.z}`);
+    return new Set(keys).size !== keys.length;
+  });
+  check("хорда розгалужень -> жоден контур не самоперетинається", !hasSelfCrossing);
+  const closedCount = loops.filter((l) => l.closed).length;
+  const openCount = loops.filter((l) => !l.closed).length;
+  check("два трикутники без спільного ребра замкнені коректно", closedCount === 2, `closed: ${closedCount}`);
+  check("нерозв'язна неоднозначність лишає контур незамкненим, а не зшитим навмання", openCount >= 1, `open: ${openCount}`);
+}
 
 if (failures) {
   console.error(`\n${failures} перевірок провалено.`);

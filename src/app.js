@@ -3256,16 +3256,26 @@ function buildSectionVisual() {
  * У точці, де сходяться рівно два відрізки (звичайний випадок), продовження
  * однозначне і береться без жодних додаткових обчислень. У точці дотику двох
  * тіл або самодотичного неопуклого контуру (три і більше відрізків на одну
- * квантовану точку) сама лише топологія неоднозначна: перший-ліпший
- * невикористаний відрізок належить до вхідного порядку масиву, а не до
- * геометрії, і легко перестрибує в сусіднє тіло чи петлю. Тому контур росте
- * одразу з двох кінців — вперед від хвоста і назад від голови, — щоб
- * встигнути зафіксувати власний напрямок повороту на звичайних (однозначних)
- * ділянках ще до того, як упреться в дотичну точку. Коли трапляється
- * розгалуження, з кандидатів обирається той, що повертає в той самий бік,
- * що й попередній поворот цього-таки контуру (а не перший за порядком
- * і не найпряміший за модулем кута — обидва варіанти інколи стрибають
- * у чуже тіло, перевірено на 5000 випадкових перестановок).
+ * квантовану точку) сама лише топологія неоднозначна. Контур росте одразу
+ * з двох кінців — вперед від хвоста і назад від голови, — щоб на звичайних
+ * (однозначних) ділянках устигнути зафіксувати власний напрямок повороту
+ * (axis) ще до того, як упреться в розгалуження. У самому розгалуженні
+ * кандидат приймається, лише коли axis уже встановлено і кандидат повертає
+ * в той самий бік, що й axis, — інакше цей кінець контуру просто перестає
+ * рости, віддаючи свої відрізки наступним ітераціям зовнішнього циклу.
+ *
+ * Навмисно без резервного «найпряміший кут, коли бік невідомий»: заміряно,
+ * що ця евристика помиляється частіше за початковий баг (сортування кутом),
+ * а хибно замкнений контур — гірший результат, ніж контур, що лишився
+ * незамкненим. Неправильне число в площі перерізу нічим не відрізняється
+ * від правильного на вигляд; незамкнений контур чи їх зайва кількість видно
+ * одразу.
+ *
+ * Голова й хвіст проходять контур у дзеркальних напрямках: без поправки
+ * добуток dirIn на dirOut на голові виходить протилежного знаку відносно
+ * того самого повороту, обчисленого на хвості (перевірено на канонічному
+ * квадраті: dot = -1). Тому знак повороту для axis і для порівняння з ним
+ * рахується через signedTurn, яка інвертує голову, а не напряму через cross.
  */
 function stitchSectionLoops(segments, epsilon = 1e-4) {
   const keyOf = (p) => `${Math.round(p.x / epsilon)}|${Math.round(p.y / epsilon)}|${Math.round(p.z / epsilon)}`;
@@ -3289,24 +3299,34 @@ function stitchSectionLoops(segments, epsilon = 1e-4) {
       .filter((ref) => !used[ref.index])
       .map((ref) => ({ ref, other: usable[ref.index][1 - ref.end] }));
 
+  /** Поворот dirIn -> dirOut в одній системі відліку контуру (див. JSDoc вище). */
+  const signedTurn = (dirIn, dirOut, prepend) => {
+    const turn = dirIn.clone().cross(dirOut);
+    return prepend ? turn.multiplyScalar(-1) : turn;
+  };
+
   /**
-   * З кількох кандидатів у розгалуженні обирає найпряміше продовження серед
-   * тих, що повертають у той самий бік, що й вісь axis (коли вона вже
-   * встановлена попереднім поворотом цього контуру). axis — це не глобальний
-   * напрямок обходу (вхідні відрізки не мають наперед заданої орієнтації),
-   * а локальна ознака «як саме повертає САМЕ ЦЕЙ контур», тому кандидат
-   * з протилежного тіла, який формально повертає різкіше, не переважає.
+   * З кандидатів у розгалуженні бере лише ті, що повертають у той самий бік,
+   * що й вісь axis, і серед них — найпряміший. Повертає null, коли axis ще
+   * не встановлено або жоден кандидат не пройшов перевірку знака — виклик
+   * зобов'язаний трактувати null як «безпечного продовження немає», а не
+   * підставляти щось наосліп.
    */
-  function bestCandidate(dirIn, point, candidates, axis) {
-    const scored = candidates.map((c) => {
+  function pickBySign(dirIn, point, candidates, axis, prepend) {
+    if (!axis) return null;
+    let best = null;
+    let bestAngle = Infinity;
+    for (const c of candidates) {
       const dirOut = c.other.clone().sub(point);
-      const sign = axis ? Math.sign(axis.dot(dirIn.clone().cross(dirOut))) : 0;
-      return { ...c, angle: dirIn.angleTo(dirOut), sign };
-    });
-    const sameSide = axis ? scored.filter((s) => s.sign > 0) : [];
-    const pool = sameSide.length ? sameSide : scored;
-    pool.sort((a, b) => a.angle - b.angle);
-    return pool[0];
+      const turn = signedTurn(dirIn, dirOut, prepend);
+      if (axis.dot(turn) <= 0) continue;
+      const angle = dirIn.angleTo(dirOut);
+      if (angle < bestAngle) {
+        bestAngle = angle;
+        best = c;
+      }
+    }
+    return best;
   }
 
   for (let i = 0; i < usable.length; i += 1) {
@@ -3328,7 +3348,7 @@ function stitchSectionLoops(segments, epsilon = 1e-4) {
       // Безальтернативний крок (ступінь вершини 2, звичайний випадок) не
       // потребує жодних обчислень кута — береться напряму, з переваги
       // хвосту над головою, коли однозначні обидва.
-      let step;
+      let step = null;
       let prepend = false;
       if (tailCandidates.length === 1) {
         step = tailCandidates[0];
@@ -3336,20 +3356,27 @@ function stitchSectionLoops(segments, epsilon = 1e-4) {
         step = headCandidates[0];
         prepend = true;
       } else if (tailCandidates.length > 1) {
-        step = bestCandidate(tailDirIn, tail, tailCandidates, axis);
+        step = pickBySign(tailDirIn, tail, tailCandidates, axis, false);
+        if (!step && headCandidates.length > 1) {
+          step = pickBySign(headDirIn, head, headCandidates, axis, true);
+          prepend = !!step;
+        }
       } else if (headCandidates.length > 1) {
-        step = bestCandidate(headDirIn, head, headCandidates, axis);
-        prepend = true;
-      } else {
-        break;
+        step = pickBySign(headDirIn, head, headCandidates, axis, true);
+        prepend = !!step;
       }
+
+      // Ні однозначного кроку, ні кандидата, що пройшов перевірку знака —
+      // цей контур на цьому і завершується. Невикористані відрізки підуть
+      // у власні контури наступними ітераціями зовнішнього циклу.
+      if (!step) break;
 
       used[step.ref.index] = true;
       const anchor = prepend ? head : tail;
       const dirIn = prepend ? headDirIn : tailDirIn;
       const dirOut = step.other.clone().sub(anchor);
       if (!axis) {
-        const turn = dirIn.clone().cross(dirOut);
+        const turn = signedTurn(dirIn, dirOut, prepend);
         if (turn.lengthSq() > 1e-12) axis = turn;
       }
 
