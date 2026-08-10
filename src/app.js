@@ -3699,6 +3699,11 @@ function setSectionEnabled(enabled) {
     buildSectionVisual();
     setStatus("Переріз: рухайте повзунки зсуву й нахилу");
   } else {
+    // Знімає й запит на відкладене перебудування: інакше учень встигає
+    // рухнути повзунок (запит поставлено) і зняти галочку до наступного
+    // кадру — без цього рядка maintainSpatialTools на тому кадрі однаково
+    // викликав би buildSectionVisual і повернув переріз у вимкнену сцену.
+    sectionRebuildPending = false;
     disposeSectionVisual();
     clipPlanes.length = 0;
     clearModelClipping();
@@ -3717,7 +3722,11 @@ function requestSectionRebuild() {
 function maintainSpatialTools() {
   if (sectionRebuildPending) {
     sectionRebuildPending = false;
-    buildSectionVisual();
+    // Друга лінія оборони поряд зі скиданням прапорця в setSectionEnabled:
+    // якщо enabled усе ж встиг стати false між запитом і цим кадром (тим
+    // самим шляхом чи будь-яким іншим, що зʼявиться пізніше), запит просто
+    // гаситься тут, а не штовхає переріз у вимкнену сцену.
+    if (sectionState.enabled) buildSectionVisual();
   }
   if (sectionState.enabled && clipPlanes.length) {
     applyModelClipping();
