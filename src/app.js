@@ -3173,6 +3173,16 @@ function intersectTriangleWithPlane(tri, plane) {
   return crossings.length === 2 ? crossings : null;
 }
 
+/** Збирає відрізки перетину моделі заданою площиною. */
+function collectSectionSegments(plane) {
+  const segments = [];
+  for (const tri of collectModelTriangles()) {
+    const seg = intersectTriangleWithPlane(tri, plane);
+    if (seg) segments.push(seg);
+  }
+  return segments;
+}
+
 function buildSectionVisual() {
   disposeSectionVisual();
   const info = computeSectionGeometry();
@@ -3182,11 +3192,23 @@ function buildSectionVisual() {
   if (clipPlanes.length === 0) clipPlanes.push(clipPlane);
   applyModelClipping();
 
-  // Контур і заливка перерізу.
-  const segments = [];
-  for (const tri of collectModelTriangles()) {
-    const seg = intersectTriangleWithPlane(tri, clipPlane);
-    if (seg) segments.push(seg);
+  // Якщо вершини тіла лягли точно в площину, строгої зміни знака немає
+  // й перетину не знаходиться зовсім. Мікрозсув площини на 0,1% радіуса
+  // знімає виродження; візуальне відсікання лишається на початковій площині,
+  // тому зсув на екрані непомітний.
+  let segments = collectSectionSegments(clipPlane);
+  let loops = stitchSectionLoops(segments);
+  let fillInfo = buildSectionFillGeometry(loops, normal);
+
+  if (!fillInfo || fillInfo.area < radius * radius * 1e-6) {
+    const nudged = point.clone().addScaledVector(normal, radius * 1e-3);
+    const probe = new THREE.Plane().setFromNormalAndCoplanarPoint(normal.clone(), nudged);
+    const retrySegments = collectSectionSegments(probe);
+    const retryFill = buildSectionFillGeometry(stitchSectionLoops(retrySegments), normal);
+    if (retryFill && retryFill.area > (fillInfo?.area ?? 0)) {
+      segments = retrySegments;
+      fillInfo = retryFill;
+    }
   }
 
   if (segments.length) {
@@ -3199,7 +3221,6 @@ function buildSectionVisual() {
     sectionOutline.renderOrder = 6;
     sectionGroup.add(sectionOutline);
 
-    const fillInfo = buildSectionFillGeometry(stitchSectionLoops(segments), normal);
     updateSectionInfo(fillInfo);
     // hasOpenLoop -> геометрії немає навмисно (buildSectionFillGeometry рахує
     // лише closed-контури): без цієї перевірки new THREE.Mesh(null, ...)

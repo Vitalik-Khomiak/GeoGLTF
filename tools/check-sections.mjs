@@ -250,6 +250,17 @@ console.log("Площа, периметр, назва");
 check("6 вершин -> шестикутник", app.describeSectionPolygon(6) === "шестикутник");
 check("48 вершин -> без назви", app.describeSectionPolygon(48) === "");
 
+/** Перетинає всі трикутники площиною із заданими нормаллю та точкою на ній. */
+function segmentsThroughPoint(triangles, normal, point) {
+  const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal.clone(), point);
+  const segments = [];
+  for (const tri of triangles) {
+    const seg = app.intersectTriangleWithPlane(tri, plane);
+    if (seg) segments.push(seg);
+  }
+  return segments;
+}
+
 /** Нормаль і відрізки перетину — спільна перша половина шляху застосунку. */
 function computeSectionSegments(file, { axis = "y", position = 0, tilt = 0, azimuth = 0 } = {}) {
   const triangles = readGlbTriangles(file);
@@ -259,27 +270,45 @@ function computeSectionSegments(file, { axis = "y", position = 0, tilt = 0, azim
   const radius = box.getBoundingSphere(new THREE.Sphere()).radius || 1;
   const normal = app.computeSectionNormal(axis, tilt, azimuth);
   const point = center.clone().addScaledVector(normal, (position / 100) * radius);
-  const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal.clone(), point);
-
-  const segments = [];
-  for (const tri of triangles) {
-    const seg = app.intersectTriangleWithPlane(tri, plane);
-    if (seg) segments.push(seg);
-  }
-  return { segments, normal };
+  const segments = segmentsThroughPoint(triangles, normal, point);
+  return { segments, normal, radius, point, triangles };
 }
 
-/** Повторює шлях застосунку: нормаль -> відрізки -> контури -> числа. */
+/**
+ * Повторює шлях застосунку: нормаль -> відрізки -> контури -> числа.
+ *
+ * Повторна спроба нижче дублює логіку задачі 6 (мікрозсув площини при
+ * виродженні) незалежно від app.js, а не звертається до неї: інакше тест
+ * порівнював би реалізацію із собою і не міг би впасти. Умова та формула
+ * зсуву — ті самі, що йдуть у buildSectionVisual: контурів немає зовсім,
+ * або сума площ мізерна відносно розміру тіла (буває ненульова кількість
+ * контурів із нульовою площею — саме так виглядає осьовий переріз циліндра
+ * через вершини обох основ).
+ */
 function sectionOf(file, opts = {}) {
-  const { segments, normal } = computeSectionSegments(file, opts);
-  const loops = app.stitchSectionLoops(segments).map((loop) => {
+  const { segments, normal, radius, point, triangles } = computeSectionSegments(file, opts);
+  const loopsFrom = (segs) => app.stitchSectionLoops(segs).map((loop) => {
     const points = app.mergeCollinearLoopPoints(loop.points);
     return { points, ...app.measureSectionLoop(points, normal) };
   });
+
+  let loops = loopsFrom(segments);
+  let area = loops.reduce((s, l) => s + l.area, 0);
+
+  if (loops.length === 0 || area < 1e-6 * radius * radius) {
+    const nudged = point.clone().addScaledVector(normal, radius * 1e-3);
+    const retryLoops = loopsFrom(segmentsThroughPoint(triangles, normal, nudged));
+    const retryArea = retryLoops.reduce((s, l) => s + l.area, 0);
+    if (retryArea > area) {
+      loops = retryLoops;
+      area = retryArea;
+    }
+  }
+
   return {
     loops: loops.length,
     vertices: loops.map((l) => l.points.length),
-    area: loops.reduce((s, l) => s + l.area, 0),
+    area,
     perimeter: loops.reduce((s, l) => s + l.perimeter, 0),
   };
 }
@@ -335,6 +364,23 @@ for (const [file, opts, loops, vertices, area, perimeter] of CONTROL) {
   check(`${label}: вершини ${vertices.join("+")}`, JSON.stringify(r.vertices) === JSON.stringify(vertices), r.vertices.join("+"));
   check(`${label}: S ≈ ${area.toFixed(2)}`, Math.abs(r.area - area) < 0.01, r.area.toFixed(2));
   check(`${label}: P ≈ ${perimeter.toFixed(2)}`, Math.abs(r.perimeter - perimeter) < 0.01, r.perimeter.toFixed(2));
+}
+
+// Вироджені площини: вершини тіла лежать точно в січній площині, строгої
+// зміни знака немає, і без мікрозсуву (задача 6) intersectTriangleWithPlane
+// не знаходить перетину зовсім — або знаходить його з нульовою площею
+// (Cylynder.glb нижче: контурів 2, S = 0, доки немає повторної спроби).
+console.log("Вироджені площини (вершини лежать у площині)");
+const DEGENERATE = [
+  ["Piramide.glb", { axis: "x" }, 1, 1.49, 5.79],
+  ["cone.glb",     { axis: "x" }, 1, 2.00, 6.47],
+  ["Cylynder.glb", { axis: "x" }, 1, 4.00, 8.00],
+];
+for (const [file, opts, loops, area, perimeter] of DEGENERATE) {
+  const r = sectionOf(file, opts);
+  check(`${file} ${JSON.stringify(opts)}: контурів ${loops}`, r.loops === loops, `${r.loops}`);
+  check(`${file}: S ≈ ${area.toFixed(2)}`, Math.abs(r.area - area) < 0.01, r.area.toFixed(2));
+  check(`${file}: P ≈ ${perimeter.toFixed(2)}`, Math.abs(r.perimeter - perimeter) < 0.01, r.perimeter.toFixed(2));
 }
 
 // CONTROL вище перевіряє лише stitchSectionLoops/measureSectionLoop — вони
