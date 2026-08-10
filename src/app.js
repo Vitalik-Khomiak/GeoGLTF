@@ -3529,6 +3529,19 @@ function describeSectionPolygon(vertexCount) {
  * без жодної ознаки помилки, а учень записав би його в зошит. Замість цього
  * функція повертає hasOpenLoop — виклик має показати попередження, а не
  * тихо неправильні S і P.
+ *
+ * Так само виключається контур, зшитий коректно (closed === true), але
+ * вироджений: рубець «туди й назад» уздовж внутрішнього ребра складеної
+ * моделі — площина ковзає по ребру одного з мешів (наприклад, другого тіла,
+ * що формує візуальний зріз), а не перетинає його по-справжньому. Площа
+ * такого контуру практично нульова при ненульовому периметрі: без фільтра
+ * учень побачив би беззмістовний «S ≈ 0,00» і мав би підстави вважати, що
+ * застосунок зламаний. Поріг береться відносно найбільшого контуру цього ж
+ * результату, а не абсолютно від розміру тіла — сигнатура функції фіксована
+ * (тест check-sections.mjs вирізає її з app.js за іменем), тож радіуса тут
+ * немає. Запас великий в обидва боки: реальний рубець виходить ~1e-16
+ * відносної площі, а найменший відомий справжній малий контур (менший
+ * з пари подібних конусів, cones_similar) — близько 17%.
  */
 function buildSectionFillGeometry(loops, normal) {
   if (!loops.length) return null;
@@ -3540,15 +3553,26 @@ function buildSectionFillGeometry(loops, normal) {
   const xAxis = new THREE.Vector3().crossVectors(reference, normal).normalize();
   const yAxis = new THREE.Vector3().crossVectors(normal, xAxis).normalize();
 
+  // Точки й виміри — окремим проходом до тріангуляції: поріг вироджень
+  // рахується відносно найбільшого контуру, а він невідомий, доки не
+  // виміряні всі контури цього результату.
+  const measuredLoops = [];
+  for (const loop of closedLoops) {
+    const points = mergeCollinearLoopPoints(loop.points);
+    if (points.length < 3) continue;
+    measuredLoops.push({ points, measured: measureSectionLoop(points, normal) });
+  }
+
+  const DEGENERATE_LOOP_AREA_RATIO = 1e-6;
+  const maxLoopArea = measuredLoops.reduce((max, l) => Math.max(max, l.measured.area), 0);
+  const survivors = measuredLoops.filter((l) => l.measured.area > maxLoopArea * DEGENERATE_LOOP_AREA_RATIO);
+
   const vertices = [];
   const summaries = [];
   let area = 0;
   let perimeter = 0;
 
-  for (const loop of closedLoops) {
-    const points = mergeCollinearLoopPoints(loop.points);
-    if (points.length < 3) continue;
-
+  for (const { points, measured } of survivors) {
     const origin = points[0];
     const flat = points.map((p) => {
       const offset = p.clone().sub(origin);
@@ -3562,7 +3586,6 @@ function buildSectionFillGeometry(loops, normal) {
       }
     }
 
-    const measured = measureSectionLoop(points, normal);
     area += measured.area;
     perimeter += measured.perimeter;
     summaries.push({ ...measured, vertexCount: points.length });

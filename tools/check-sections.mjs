@@ -59,12 +59,35 @@ const factory = new Function("THREE", `${constCode}\n${code}
   return { ${NAMES.join(", ")} };`);
 const app = factory(THREE);
 
+/** Матриця вузла glTF: node.matrix, якщо задана, інакше компонується з TRS
+ * (translation/rotation/scale — кожне зі своїм дефолтом за специфікацією). */
+function nodeLocalMatrix(node) {
+  if (node.matrix) return new THREE.Matrix4().fromArray(node.matrix);
+  const t = node.translation || [0, 0, 0];
+  const r = node.rotation || [0, 0, 0, 1];
+  const s = node.scale || [1, 1, 1];
+  return new THREE.Matrix4().compose(
+    new THREE.Vector3(...t),
+    new THREE.Quaternion(...r),
+    new THREE.Vector3(...s),
+  );
+}
+
 /**
  * Читає всі трикутники .glb напряму з бінарного контейнера (без Three.js
  * loader'а — тут потрібні лише сирі позиції). За зразком readGlb
  * з tools/check-models.mjs, але обходить УСІ меші й УСІ примітиви кожного
  * меша, а не лише перший: моделі з двох тіл (cylinders_pair, cones_similar)
  * саме на цьому й ламалися.
+ *
+ * Обхід іде від коренів сцени рекурсивно по children, накопичуючи матрицю
+ * трансформації вузла. Більшість моделей бібліотеки пласкі (один меш — один
+ * кореневий вузол без власного transform, накопичена матриця — одинична),
+ * але cube_slice.glb («Куб зі зрізом») має другий вузол (Cube.001) із
+ * власними rotation+scale: без застосування трансформу вузла його геометрія
+ * читалася б як лежить у локальних координатах, а не так, як її бачить
+ * collectModelTriangles() у самому застосунку (activeModelRoot.traverse +
+ * matrixWorld) — тест на цій моделі мовчки не перевіряв би нічого.
  */
 function readGlbTriangles(file) {
   const buf = readFileSync(join(modelsDir, file));
@@ -85,20 +108,28 @@ function readGlbTriangles(file) {
   };
 
   const triangles = [];
-  for (const mesh of json.meshes) {
-    for (const prim of mesh.primitives) {
-      const positions = readAccessor(prim.attributes.POSITION);
-      const indices = readAccessor(prim.indices);
-      for (let i = 0; i < indices.length; i += 3) {
-        const tri = [indices[i], indices[i + 1], indices[i + 2]].map((idx) => new THREE.Vector3(
-          positions[idx * 3],
-          positions[idx * 3 + 1],
-          positions[idx * 3 + 2],
-        ));
-        triangles.push(tri);
+  const visit = (nodeIndex, parentMatrix) => {
+    const node = json.nodes[nodeIndex];
+    const matrix = parentMatrix.clone().multiply(nodeLocalMatrix(node));
+    if (node.mesh !== undefined) {
+      const mesh = json.meshes[node.mesh];
+      for (const prim of mesh.primitives) {
+        const positions = readAccessor(prim.attributes.POSITION);
+        const indices = readAccessor(prim.indices);
+        for (let i = 0; i < indices.length; i += 3) {
+          const tri = [indices[i], indices[i + 1], indices[i + 2]].map((idx) => new THREE.Vector3(
+            positions[idx * 3],
+            positions[idx * 3 + 1],
+            positions[idx * 3 + 2],
+          ).applyMatrix4(matrix));
+          triangles.push(tri);
+        }
       }
     }
-  }
+    (node.children || []).forEach((childIndex) => visit(childIndex, matrix));
+  };
+  const rootNodes = json.scenes[json.scene ?? 0].nodes;
+  rootNodes.forEach((nodeIndex) => visit(nodeIndex, new THREE.Matrix4()));
   return triangles;
 }
 
@@ -430,6 +461,15 @@ console.log("buildSectionFillGeometry напряму на парних моде�
 for (const [file, opts, expectLoops, expectArea, expectPerimeter] of [
   ["cylinders_pair.glb", { position: -30 }, 2, 6.24, 12.55],
   ["cones_similar.glb", { position: -30 }, 2, 2.59, 7.44],
+  // cube_slice.glb ("Куб зі зрізом" у бібліотеці): другий вузол моделі
+  // (Cube.001, повернутий на 45° і масштабований відносно першого) при
+  // зсуві 10 перетинається площиною по власному ребру — stitchSectionLoops
+  // чесно збирає з цього замкнений контур (4 вершини), але його площа
+  // вироджена (~1e-16 при периметрі 7,47). Без фільтра в
+  // buildSectionFillGeometry студент побачив би "2 контури · S ≈ 4.00 + 0.00
+  // · P ≈ 8.00 + 7.47" замість чесного одного перерізу — сюди й потрапив
+  // цей рядок, щоб регресія такого роду більше не проходила непоміченою.
+  ["cube_slice.glb", { position: 10 }, 1, 4.00, 8.00],
 ]) {
   const { segments, normal } = computeSectionSegments(file, opts);
   const fillInfo = app.buildSectionFillGeometry(app.stitchSectionLoops(segments), normal);
