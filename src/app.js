@@ -3089,6 +3089,7 @@ function resetSpatialTools() {
   clearMeasurement();
   if (measureToggle) measureToggle.checked = false;
   cachedCornerVertices = null;
+  cachedSectionTriangles = null;
 }
 
 /* ---------- ПЕРЕРІЗ ПЛОЩИНОЮ ---------- */
@@ -3133,7 +3134,13 @@ function computeSectionGeometry() {
   return { normal, point, center, radius };
 }
 
+/**
+ * Трикутники моделі між перебудуваннями перерізу не змінюються, тому
+ * результат кешується. Повторна спроба при виродженій площині викликає цю
+ * функцію вдруге — без кешу вона повторювала б увесь обхід сцени.
+ */
 function collectModelTriangles() {
+  if (cachedSectionTriangles) return cachedSectionTriangles;
   const triangles = [];
   if (!activeModelRoot) return triangles;
   activeModelRoot.updateMatrixWorld(true);
@@ -3155,6 +3162,7 @@ function collectModelTriangles() {
       ]);
     }
   });
+  cachedSectionTriangles = triangles;
   return triangles;
 }
 
@@ -3905,6 +3913,7 @@ measureGroup.name = "measureGroup";
 scene.add(measureGroup);
 let measureStartPoint = null;
 let cachedCornerVertices = null;
+let cachedSectionTriangles = null;
 
 /**
  * Повертає кешовані кутові вершини моделі, щоб лінійка й експорт не перераховували їх щоразу.
