@@ -31,7 +31,7 @@ function extract(name) {
   return source.slice(start, i + 1);
 }
 
-const NAMES = ["computeSectionNormal", "stitchSectionLoops"];
+const NAMES = ["computeSectionNormal", "stitchSectionLoops", "mergeCollinearLoopPoints"];
 const factory = new Function("THREE", `${NAMES.map(extract).join("\n")}
   return { ${NAMES.join(", ")} };`);
 const app = factory(THREE);
@@ -141,6 +141,25 @@ console.log("Зшивання контурів");
   const openCount = loops.filter((l) => !l.closed).length;
   check("два трикутники без спільного ребра замкнені коректно", closedCount === 2, `closed: ${closedCount}`);
   check("нерозв'язна неоднозначність лишає контур незамкненим, а не зшитим навмання", openCount >= 1, `open: ${openCount}`);
+}
+
+console.log("Злиття колінеарних точок");
+{
+  const withMidpoints = [
+    new THREE.Vector3(0, 0, 0), new THREE.Vector3(0.5, 0, 0), new THREE.Vector3(1, 0, 0),
+    new THREE.Vector3(1, 0, 0.5), new THREE.Vector3(1, 0, 1),
+    new THREE.Vector3(0.5, 0, 1), new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, 0.5),
+  ];
+  const merged = app.mergeCollinearLoopPoints(withMidpoints);
+  check("8 точок квадрата -> 4 вершини", merged.length === 4, `${merged.length}`);
+}
+{
+  const circle = [];
+  for (let i = 0; i < 16; i += 1) {
+    const a = (i / 16) * Math.PI * 2;
+    circle.push(new THREE.Vector3(Math.cos(a), 0, Math.sin(a)));
+  }
+  check("коло з 16 точок не згортається", app.mergeCollinearLoopPoints(circle).length === 16);
 }
 
 if (failures) {

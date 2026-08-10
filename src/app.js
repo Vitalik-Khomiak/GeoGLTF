@@ -3395,6 +3395,34 @@ function stitchSectionLoops(segments, epsilon = 1e-4) {
   return loops;
 }
 
+/**
+ * Прибирає з контуру точки, що лежать на прямій між сусідами.
+ *
+ * Потрібне, щоб отримати справжню кількість вершин многокутника: грань куба
+ * складається з двох трикутників і дає зайву точку на діагоналі. На площу
+ * й периметр не впливає — колінеарна точка не змінює ні того, ні того.
+ */
+function mergeCollinearLoopPoints(points, epsilon = 1e-4) {
+  const count = points.length;
+  if (count < 3) return points.slice();
+
+  const kept = [];
+  for (let i = 0; i < count; i += 1) {
+    const previous = points[(i - 1 + count) % count];
+    const current = points[i];
+    const next = points[(i + 1) % count];
+    const back = current.clone().sub(previous);
+    const forward = next.clone().sub(current);
+    const backLength = back.length();
+    const forwardLength = forward.length();
+    if (backLength < epsilon || forwardLength < epsilon) continue;
+    const sine = back.cross(forward).length() / (backLength * forwardLength);
+    if (sine > epsilon) kept.push(current);
+  }
+
+  return kept.length >= 3 ? kept : points.slice();
+}
+
 function buildSectionFillGeometry(points, normal, origin) {
   if (points.length < 6) return null;
   // Базис у площині перерізу.
