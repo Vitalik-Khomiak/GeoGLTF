@@ -3183,19 +3183,15 @@ function buildSectionVisual() {
   applyModelClipping();
 
   // Контур і заливка перерізу.
-  const segPoints = [];
-  const planePoints = [];
-  const triangles = collectModelTriangles();
-  for (const tri of triangles) {
+  const segments = [];
+  for (const tri of collectModelTriangles()) {
     const seg = intersectTriangleWithPlane(tri, clipPlane);
-    if (seg) {
-      segPoints.push(seg[0], seg[1]);
-      planePoints.push(seg[0], seg[1]);
-    }
+    if (seg) segments.push(seg);
   }
 
-  if (segPoints.length) {
-    const outlineGeo = new THREE.BufferGeometry().setFromPoints(segPoints);
+  if (segments.length) {
+    const outlinePoints = segments.flat();
+    const outlineGeo = new THREE.BufferGeometry().setFromPoints(outlinePoints);
     sectionOutline = new THREE.LineSegments(
       outlineGeo,
       new THREE.LineBasicMaterial({ color: SECTION_LINE_COLOR, depthTest: false, transparent: true }),
@@ -3203,9 +3199,12 @@ function buildSectionVisual() {
     sectionOutline.renderOrder = 6;
     sectionGroup.add(sectionOutline);
 
-    const fillInfo = buildSectionFillGeometry(planePoints, normal, point);
+    const fillInfo = buildSectionFillGeometry(stitchSectionLoops(segments), normal);
     updateSectionInfo(fillInfo);
-    if (fillInfo) {
+    // hasOpenLoop -> геометрії немає навмисно (buildSectionFillGeometry рахує
+    // лише closed-контури): без цієї перевірки new THREE.Mesh(null, ...)
+    // впало б при рендері. Контур (лінія вище) лишається намальованим завжди.
+    if (fillInfo?.geometry) {
       sectionFill = new THREE.Mesh(
         fillInfo.geometry,
         new THREE.MeshBasicMaterial({
@@ -3461,54 +3460,75 @@ function describeSectionPolygon(vertexCount) {
   return SECTION_POLYGON_NAMES[vertexCount] ?? "";
 }
 
-function buildSectionFillGeometry(points, normal, origin) {
-  if (points.length < 6) return null;
-  // Базис у площині перерізу.
-  const u = new THREE.Vector3(0, 1, 0);
-  if (Math.abs(normal.dot(u)) > 0.9) u.set(1, 0, 0);
-  const xAxis = new THREE.Vector3().crossVectors(u, normal).normalize();
+/**
+ * Тріангулює контури перерізу й рахує підсумкові числа.
+ *
+ * Приймає вже зшиті контури, а не хмару точок. Тріангуляція — earcut
+ * зі стокового three.js (`ShapeUtils.triangulateShape`), тому неопуклий
+ * контур заливається правильно.
+ *
+ * Рахує лише контури з closed === true. Контур, який stitchSectionLoops не
+ * змогла однозначно замкнути (див. її JSDoc), навмисно виключається
+ * з тріангуляції: хибно злитий контур дав би на вигляд звичайне число S/P
+ * без жодної ознаки помилки, а учень записав би його в зошит. Замість цього
+ * функція повертає hasOpenLoop — виклик має показати попередження, а не
+ * тихо неправильні S і P.
+ */
+function buildSectionFillGeometry(loops, normal) {
+  if (!loops.length) return null;
+
+  const hasOpenLoop = loops.some((loop) => !loop.closed);
+  const closedLoops = loops.filter((loop) => loop.closed);
+
+  const reference = Math.abs(normal.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+  const xAxis = new THREE.Vector3().crossVectors(reference, normal).normalize();
   const yAxis = new THREE.Vector3().crossVectors(normal, xAxis).normalize();
-  // Унікальні точки контуру.
-  const unique = [];
-  const seen = new Set();
-  for (const p of points) {
-    const key = `${p.x.toFixed(3)},${p.y.toFixed(3)},${p.z.toFixed(3)}`;
-    if (!seen.has(key)) { seen.add(key); unique.push(p); }
-  }
-  if (unique.length < 3) return null;
-  const centroid = unique.reduce((acc, p) => acc.add(p), new THREE.Vector3()).multiplyScalar(1 / unique.length);
-  const projected = unique.map((p) => {
-    const d = p.clone().sub(centroid);
-    return { p, a: Math.atan2(d.dot(yAxis), d.dot(xAxis)) };
-  });
-  projected.sort((m, n) => m.a - n.a);
-  const verts = [];
+
+  const vertices = [];
+  const summaries = [];
   let area = 0;
-  for (let i = 1; i < projected.length - 1; i += 1) {
-    verts.push(
-      projected[0].p.x, projected[0].p.y, projected[0].p.z,
-      projected[i].p.x, projected[i].p.y, projected[i].p.z,
-      projected[i + 1].p.x, projected[i + 1].p.y, projected[i + 1].p.z,
-    );
-    const edgeA = projected[i].p.clone().sub(projected[0].p);
-    const edgeB = projected[i + 1].p.clone().sub(projected[0].p);
-    area += edgeA.cross(edgeB).length() / 2;
-  }
-
   let perimeter = 0;
-  for (let i = 0; i < projected.length; i += 1) {
-    perimeter += projected[i].p.distanceTo(projected[(i + 1) % projected.length].p);
+
+  for (const loop of closedLoops) {
+    const points = mergeCollinearLoopPoints(loop.points);
+    if (points.length < 3) continue;
+
+    const origin = points[0];
+    const flat = points.map((p) => {
+      const offset = p.clone().sub(origin);
+      return new THREE.Vector2(offset.dot(xAxis), offset.dot(yAxis));
+    });
+
+    for (const face of THREE.ShapeUtils.triangulateShape(flat, [])) {
+      for (const index of face) {
+        const p = points[index];
+        vertices.push(p.x, p.y, p.z);
+      }
+    }
+
+    const measured = measureSectionLoop(points, normal);
+    area += measured.area;
+    perimeter += measured.perimeter;
+    summaries.push({ ...measured, vertexCount: points.length });
   }
 
-  void origin;
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.Float32BufferAttribute(verts, 3));
-  geo.computeVertexNormals();
-  return { geometry: geo, area, perimeter };
+  if (!vertices.length) return hasOpenLoop ? { geometry: null, area: 0, perimeter: 0, loops: [], hasOpenLoop } : null;
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+  geometry.computeVertexNormals();
+  return { geometry, area, perimeter, loops: summaries, hasOpenLoop };
 }
 
 /**
- * Показує площу та периметр поточного перерізу в панелі керування перерізом.
+ * Показує числа перерізу в панелі керування. Для моделі з двома тілами числа
+ * подаються окремо по кожному контуру: у порівняльних завданнях сума нічого
+ * не означає, а «однакові чи ні» — саме те, що учень має побачити.
+ *
+ * Коли зшивання лишило хоч один контур незамкненим (hasOpenLoop), числа
+ * замінюються попередженням: неоднозначність має бути видимою на екрані,
+ * а не тихою помилкою в S/P (контур на екрані малюється в будь-якому разі,
+ * незалежно від зшивання — це sectionOutline у buildSectionVisual).
  */
 function updateSectionInfo(fillInfo) {
   const infoElement = document.querySelector("#sectionInfo");
@@ -3521,7 +3541,28 @@ function updateSectionInfo(fillInfo) {
     return;
   }
 
-  infoElement.textContent = `S ≈ ${fillInfo.area.toFixed(2)} · P ≈ ${fillInfo.perimeter.toFixed(2)}`;
+  if (fillInfo.hasOpenLoop) {
+    infoElement.textContent = "Переріз неповний — зрушіть площину";
+    return;
+  }
+
+  if (!fillInfo.loops.length) {
+    infoElement.textContent = "";
+    return;
+  }
+
+  const parts = fillInfo.loops;
+  if (parts.length > 1) {
+    const areas = parts.map((part) => part.area.toFixed(2)).join(" + ");
+    const perimeters = parts.map((part) => part.perimeter.toFixed(2)).join(" + ");
+    const word = parts.length < 5 ? "контури" : "контурів";
+    infoElement.textContent = `${parts.length} ${word} · S ≈ ${areas} · P ≈ ${perimeters}`;
+    return;
+  }
+
+  const shape = describeSectionPolygon(parts[0].vertexCount);
+  const prefix = shape ? `${shape} · ` : "";
+  infoElement.textContent = `${prefix}S ≈ ${fillInfo.area.toFixed(2)} · P ≈ ${fillInfo.perimeter.toFixed(2)}`;
 }
 
 function collectNodeMaterials(node) {
