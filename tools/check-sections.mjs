@@ -31,8 +31,26 @@ function extract(name) {
   return source.slice(start, i + 1);
 }
 
-const NAMES = ["computeSectionNormal", "stitchSectionLoops", "mergeCollinearLoopPoints"];
-const factory = new Function("THREE", `${NAMES.map(extract).join("\n")}
+/** Вирізає оголошення константи за іменем (для об'єктів літерал з { }). */
+function extractConst(name) {
+  const start = source.indexOf(`const ${name} = `);
+  if (start < 0) throw new Error(`Константу не знайдено в app.js: ${name}`);
+  let i = source.indexOf("{", start);
+  let depth = 0;
+  for (; i < source.length; i += 1) {
+    if (source[i] === "{") depth += 1;
+    else if (source[i] === "}") {
+      depth -= 1;
+      if (depth === 0) break;
+    }
+  }
+  return source.slice(start, i + 1) + ";";
+}
+
+const NAMES = ["computeSectionNormal", "stitchSectionLoops", "mergeCollinearLoopPoints", "measureSectionLoop", "describeSectionPolygon"];
+const code = NAMES.map(extract).join("\n");
+const constCode = extractConst("SECTION_POLYGON_NAMES");
+const factory = new Function("THREE", `${constCode}\n${code}
   return { ${NAMES.join(", ")} };`);
 const app = factory(THREE);
 
@@ -161,6 +179,28 @@ console.log("Злиття колінеарних точок");
   }
   check("коло з 16 точок не згортається", app.mergeCollinearLoopPoints(circle).length === 16);
 }
+
+console.log("Площа, периметр, назва");
+{
+  const square = [
+    new THREE.Vector3(0, 0, 0), new THREE.Vector3(2, 0, 0),
+    new THREE.Vector3(2, 0, 2), new THREE.Vector3(0, 0, 2),
+  ];
+  const m = app.measureSectionLoop(square, new THREE.Vector3(0, 1, 0));
+  check("квадрат 2x2: площа 4", Math.abs(m.area - 4) < 0.01, m.area.toFixed(3));
+  check("квадрат 2x2: периметр 8", Math.abs(m.perimeter - 8) < 0.01, m.perimeter.toFixed(3));
+}
+{
+  // Неопуклий контур: кутове сортування давало тут завищену площу.
+  const lShape = [
+    new THREE.Vector3(0, 0, 0), new THREE.Vector3(2, 0, 0), new THREE.Vector3(2, 0, 1),
+    new THREE.Vector3(1, 0, 1), new THREE.Vector3(1, 0, 2), new THREE.Vector3(0, 0, 2),
+  ];
+  const m = app.measureSectionLoop(lShape, new THREE.Vector3(0, 1, 0));
+  check("неопукла Г-подібна фігура: площа 3", Math.abs(m.area - 3) < 0.01, m.area.toFixed(3));
+}
+check("6 вершин -> шестикутник", app.describeSectionPolygon(6) === "шестикутник");
+check("48 вершин -> без назви", app.describeSectionPolygon(48) === "");
 
 if (failures) {
   console.error(`\n${failures} перевірок провалено.`);

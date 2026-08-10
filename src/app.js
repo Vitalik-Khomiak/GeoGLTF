@@ -3423,6 +3423,44 @@ function mergeCollinearLoopPoints(points, epsilon = 1e-4) {
   return kept.length >= 3 ? kept : points.slice();
 }
 
+/**
+ * Площа й периметр замкненого контуру.
+ *
+ * Площа рахується формулою Ньюелла |Σ(Pᵢ × Pᵢ₊₁) · n| / 2 — вона точна для
+ * будь-якого простого многокутника, зокрема неопуклого, і не потребує
+ * тріангуляції. Попередня схема (fan від першої точки) для неопуклих
+ * контурів давала завищене число.
+ */
+function measureSectionLoop(points, normal) {
+  const total = new THREE.Vector3();
+  const edge = new THREE.Vector3();
+  let perimeter = 0;
+
+  for (let i = 0; i < points.length; i += 1) {
+    const current = points[i];
+    const next = points[(i + 1) % points.length];
+    total.add(new THREE.Vector3().crossVectors(current, next));
+    perimeter += edge.subVectors(next, current).length();
+  }
+
+  return { area: Math.abs(total.dot(normal)) / 2, perimeter };
+}
+
+// Застосунок називає многокутник за кількістю вершин і не більше.
+// «Квадрат» чи «правильний шестикутник» — це вже висновок, і робить його учень.
+const SECTION_POLYGON_NAMES = {
+  3: "трикутник",
+  4: "чотирикутник",
+  5: "п'ятикутник",
+  6: "шестикутник",
+  7: "семикутник",
+  8: "восьмикутник",
+};
+
+function describeSectionPolygon(vertexCount) {
+  return SECTION_POLYGON_NAMES[vertexCount] ?? "";
+}
+
 function buildSectionFillGeometry(points, normal, origin) {
   if (points.length < 6) return null;
   // Базис у площині перерізу.
