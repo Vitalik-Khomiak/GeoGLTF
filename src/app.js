@@ -3066,6 +3066,7 @@ sectionGroup.name = "sectionGroup";
 let sectionPlaneMesh = null;
 let sectionOutline = null;
 let sectionFill = null;
+let sectionRebuildPending = false;
 
 const labelsGroup = new THREE.Group();
 labelsGroup.name = "vertexLabels";
@@ -3681,7 +3682,20 @@ function setSectionEnabled(enabled) {
   }
 }
 
+/**
+ * Ставить перебудування перерізу в чергу до наступного кадру.
+ * Подія `input` повзунка приходить частіше за кадр, а перебудування —
+ * це обхід геометрії, тріангуляція й перестворення матеріалів.
+ */
+function requestSectionRebuild() {
+  if (sectionState.enabled) sectionRebuildPending = true;
+}
+
 function maintainSpatialTools() {
+  if (sectionRebuildPending) {
+    sectionRebuildPending = false;
+    buildSectionVisual();
+  }
   if (sectionState.enabled && clipPlanes.length) {
     applyModelClipping();
   }
@@ -4218,20 +4232,20 @@ function bindSpatialToolEvents() {
       sectionAxisButtons.forEach((b) => b.classList.remove("is-active"));
       btn.classList.add("is-active");
       sectionState.axis = btn.dataset.axis;
-      if (sectionState.enabled) buildSectionVisual();
+      requestSectionRebuild();
     });
   });
   sectionPositionSlider?.addEventListener("input", () => {
     sectionState.position = Number(sectionPositionSlider.value);
-    if (sectionState.enabled) buildSectionVisual();
+    requestSectionRebuild();
   });
   sectionTiltSlider?.addEventListener("input", () => {
     sectionState.tiltDeg = Number(sectionTiltSlider.value);
-    if (sectionState.enabled) buildSectionVisual();
+    requestSectionRebuild();
   });
   sectionPlaneToggle?.addEventListener("change", () => {
     sectionState.showPlane = sectionPlaneToggle.checked;
-    if (sectionState.enabled) buildSectionVisual();
+    requestSectionRebuild();
   });
 
   renderer.domElement.addEventListener("pointerdown", (event) => {
