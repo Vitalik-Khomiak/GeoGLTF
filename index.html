@@ -123,7 +123,7 @@
               <ul class="help-list">
                 <li><b>Обертання</b> — перетягуй пальцем / лівою кнопкою. <b>Масштаб</b> — щипок / коліщатко. Два пальці — поворот навколо осі екрана. <b>Панорама</b> — права кнопка миші (на дотику вимкнена).</li>
                 <li><b>Спереду / Зверху / Збоку / Ізо</b> — швидкі види (клавіші f, t, s, i).</li>
-                <li><b>Переріз</b> — площина зі зсувом і нахилом; показує форму, площу S і периметр P перерізу (клавіша c).</li>
+                <li><b>Переріз</b> — площина зі зсувом, нахилом і поворотом; показує форму перерізу, його площу S і периметр P (клавіша c).</li>
                 <li><b>Підписи</b> — позначення вершин A, B, C, A₁… для многогранників (клавіша l).</li>
                 <li><b>Підсвітка</b> — торкнися грані, щоб виділити її.</li>
                 <li><b>Лінійка</b> — торкнись двох точок, щоб виміряти відстань; вершини «прилипають» (клавіша m).</li>
@@ -213,7 +213,11 @@
             </label>
             <label class="slider-field">
               <span>Нахил</span>
-              <input id="sectionTiltSlider" class="unfold-slider" type="range" min="-60" max="60" step="1" value="0" aria-label="Нахил площини перерізу" />
+              <input id="sectionTiltSlider" class="unfold-slider" type="range" min="-80" max="80" step="0.1" value="0" aria-label="Нахил площини перерізу" />
+            </label>
+            <label class="slider-field">
+              <span>Поворот</span>
+              <input id="sectionAzimuthSlider" class="unfold-slider" type="range" min="-180" max="180" step="1" value="0" aria-label="Поворот площини перерізу навколо осі" />
             </label>
             <label class="seg"><input id="sectionPlaneToggle" type="checkbox" checked /><span>Площина</span></label>
             <span id="sectionInfo" class="section-info" aria-live="polite"></span>

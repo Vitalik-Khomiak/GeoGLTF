@@ -3056,6 +3056,7 @@ const sectionControls = document.querySelector("#sectionControls");
 const sectionAxisButtons = [...document.querySelectorAll(".chip-axis")];
 const sectionPositionSlider = document.querySelector("#sectionPositionSlider");
 const sectionTiltSlider = document.querySelector("#sectionTiltSlider");
+const sectionAzimuthSlider = document.querySelector("#sectionAzimuthSlider");
 const sectionPlaneToggle = document.querySelector("#sectionPlaneToggle");
 
 const sectionState = { enabled: false, axis: "y", position: 0, tiltDeg: 0, azimuthDeg: 0, showPlane: true };
@@ -4273,6 +4274,10 @@ function bindSpatialToolEvents() {
   });
   sectionTiltSlider?.addEventListener("input", () => {
     sectionState.tiltDeg = Number(sectionTiltSlider.value);
+    requestSectionRebuild();
+  });
+  sectionAzimuthSlider?.addEventListener("input", () => {
+    sectionState.azimuthDeg = Number(sectionAzimuthSlider.value);
     requestSectionRebuild();
   });
   sectionPlaneToggle?.addEventListener("change", () => {
