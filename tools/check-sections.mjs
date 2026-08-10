@@ -52,7 +52,7 @@ function extractConst(name) {
   return source.slice(start, i + 1) + ";";
 }
 
-const NAMES = ["computeSectionNormal", "stitchSectionLoops", "mergeCollinearLoopPoints", "measureSectionLoop", "describeSectionPolygon", "intersectTriangleWithPlane", "buildSectionFillGeometry"];
+const NAMES = ["computeSectionNormal", "stitchSectionLoops", "mergeCollinearLoopPoints", "measureSectionLoop", "describeSectionPolygon", "intersectTriangleWithPlane", "buildSectionFillGeometry", "needsSectionRetry", "pickBetterSectionFill"];
 const code = NAMES.map(extract).join("\n");
 const constCode = extractConst("SECTION_POLYGON_NAMES");
 const factory = new Function("THREE", `${constCode}\n${code}
@@ -277,13 +277,21 @@ function computeSectionSegments(file, { axis = "y", position = 0, tilt = 0, azim
 /**
  * Повторює шлях застосунку: нормаль -> відрізки -> контури -> числа.
  *
- * Повторна спроба нижче дублює логіку задачі 6 (мікрозсув площини при
- * виродженні) незалежно від app.js, а не звертається до неї: інакше тест
- * порівнював би реалізацію із собою і не міг би впасти. Умова та формула
- * зсуву — ті самі, що йдуть у buildSectionVisual: контурів немає зовсім,
- * або сума площ мізерна відносно розміру тіла (буває ненульова кількість
- * контурів із нульовою площею — саме так виглядає осьовий переріз циліндра
- * через вершини обох основ).
+ * Збирання відрізків і зшивання в контури тут — прямі виклики чистих функцій
+ * (як і в решті файла), не звернення до collectSectionSegments/buildSectionVisual
+ * із app.js (вони прив'язані до DOM/сцени). Але РІШЕННЯ про повтор — чи він
+ * потрібен, і чи його результат кращий за перший, — тепер не повторна копія
+ * формули, а виклик needsSectionRetry/pickBetterSectionFill, вирізаних із
+ * app.js через extract() (як-от buildSectionFillGeometry вище): якщо хтось
+ * у app.js змінить поріг або строге порівняння на нестроге, обидва виклики
+ * (тут і в buildSectionVisual) відреагують однаково — тест перестане бути
+ * незалежною копією, яка мовчки лишається зеленою при поламаному оригіналі.
+ *
+ * fillInfo тут — мінімальна форма { area }, а не повний об'єкт
+ * buildSectionFillGeometry (geometry/loops/hasOpenLoop): обидві вирізані
+ * функції читають лише .area (і сам факт null/не-null), тож для перевірки
+ * рішення про повтор цього достатньо, а обчислення контурів і периметра
+ * лишається на loopsFrom нижче.
  */
 function sectionOf(file, opts = {}) {
   const { segments, normal, radius, point, triangles } = computeSectionSegments(file, opts);
@@ -291,24 +299,26 @@ function sectionOf(file, opts = {}) {
     const points = app.mergeCollinearLoopPoints(loop.points);
     return { points, ...app.measureSectionLoop(points, normal) };
   });
+  const totalArea = (loopsArr) => loopsArr.reduce((s, l) => s + l.area, 0);
 
   let loops = loopsFrom(segments);
-  let area = loops.reduce((s, l) => s + l.area, 0);
+  let fillInfo = loops.length ? { area: totalArea(loops) } : null;
 
-  if (loops.length === 0 || area < 1e-6 * radius * radius) {
+  if (app.needsSectionRetry(fillInfo, radius)) {
     const nudged = point.clone().addScaledVector(normal, radius * 1e-3);
     const retryLoops = loopsFrom(segmentsThroughPoint(triangles, normal, nudged));
-    const retryArea = retryLoops.reduce((s, l) => s + l.area, 0);
-    if (retryArea > area) {
+    const retryFill = retryLoops.length ? { area: totalArea(retryLoops) } : null;
+    const picked = app.pickBetterSectionFill(fillInfo, retryFill);
+    if (picked !== fillInfo) {
       loops = retryLoops;
-      area = retryArea;
+      fillInfo = picked;
     }
   }
 
   return {
     loops: loops.length,
     vertices: loops.map((l) => l.points.length),
-    area,
+    area: fillInfo?.area ?? 0,
     perimeter: loops.reduce((s, l) => s + l.perimeter, 0),
   };
 }
@@ -381,6 +391,34 @@ for (const [file, opts, loops, area, perimeter] of DEGENERATE) {
   check(`${file} ${JSON.stringify(opts)}: контурів ${loops}`, r.loops === loops, `${r.loops}`);
   check(`${file}: S ≈ ${area.toFixed(2)}`, Math.abs(r.area - area) < 0.01, r.area.toFixed(2));
   check(`${file}: P ≈ ${perimeter.toFixed(2)}`, Math.abs(r.perimeter - perimeter) < 0.01, r.perimeter.toFixed(2));
+}
+
+// DEGENERATE вище перевіряє рішення про повтор опосередковано, на реальній
+// геометрії. Тут навпаки: needsSectionRetry/pickBetterSectionFill викликані
+// напряму на синтетичних fillInfo, щоб зафіксувати саме граничну поведінку.
+// Це єдине місце, яке ловить мутацію строгого порівняння (> -> >=) чи зсув
+// порогу: на реальних моделях і те, і те дає числа, ще не занадто далекі,
+// щоб гарантовано впасти.
+console.log("needsSectionRetry / pickBetterSectionFill");
+{
+  const radius = 2;
+  const threshold = radius * radius * 1e-6;
+  check("немає fillInfo -> потрібен повтор", app.needsSectionRetry(null, radius) === true);
+  check("площа рівно на порозі -> повтор НЕ потрібен (поріг строгий)", app.needsSectionRetry({ area: threshold }, radius) === false);
+  check("площа трохи нижче порогу -> потрібен повтор", app.needsSectionRetry({ area: threshold * 0.5 }, radius) === true);
+  check("площа здорового перерізу -> повтор НЕ потрібен", app.needsSectionRetry({ area: 1.0 }, radius) === false);
+}
+{
+  const original = { area: 3.14 };
+  const worse = { area: 1.0 };
+  const better = { area: 5.0 };
+  const same = { area: 3.14 };
+  check("кращий повтор приймається", app.pickBetterSectionFill(original, better) === better);
+  check("гірший повтор відхиляється", app.pickBetterSectionFill(original, worse) === original);
+  check("рівний за площею повтор відхиляється (строге >)", app.pickBetterSectionFill(original, same) === original);
+  check("повтор відсутній (null) -> лишається перший", app.pickBetterSectionFill(original, null) === original);
+  check("першого результату немає, повтор є -> береться повтор", app.pickBetterSectionFill(null, better) === better);
+  check("немає жодного результату -> null", app.pickBetterSectionFill(null, null) === null);
 }
 
 // CONTROL вище перевіряє лише stitchSectionLoops/measureSectionLoop — вони

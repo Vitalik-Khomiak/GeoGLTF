@@ -3183,6 +3183,32 @@ function collectSectionSegments(plane) {
   return segments;
 }
 
+/**
+ * Чи варто повторити спробу перерізу на мікрозсунутій площині: перерізу
+ * не знайдено взагалі (fillInfo відсутній), або знайдені контури мають
+ * мізерну площу відносно розміру тіла. Саме площа, а не кількість
+ * контурів: буває ненульова кількість контурів із нульовою площею
+ * (осьовий переріз циліндра через вершини обох основ).
+ *
+ * Чиста функція — без неї рішення про повтор існувало б лише всередині
+ * buildSectionVisual, і check-sections.mjs міг би тільки повторити формулу
+ * вручну, а не викликати справжню.
+ */
+function needsSectionRetry(fillInfo, radius) {
+  return !fillInfo || fillInfo.area < radius * radius * 1e-6;
+}
+
+/**
+ * Обирає кращий із двох результатів перерізу — початкового й повторного
+ * на мікрозсунутій площині. Повтор приймається, лише коли його площа
+ * строго більша за початкову: гірший або так само нульовий повтор не
+ * підміняє чесний перший результат (площина справді може не перетинати
+ * тіло — тоді і повтор дасть 0).
+ */
+function pickBetterSectionFill(fillInfo, retryFill) {
+  return retryFill && retryFill.area > (fillInfo?.area ?? 0) ? retryFill : fillInfo;
+}
+
 function buildSectionVisual() {
   disposeSectionVisual();
   const info = computeSectionGeometry();
@@ -3197,17 +3223,17 @@ function buildSectionVisual() {
   // знімає виродження; візуальне відсікання лишається на початковій площині,
   // тому зсув на екрані непомітний.
   let segments = collectSectionSegments(clipPlane);
-  let loops = stitchSectionLoops(segments);
-  let fillInfo = buildSectionFillGeometry(loops, normal);
+  let fillInfo = buildSectionFillGeometry(stitchSectionLoops(segments), normal);
 
-  if (!fillInfo || fillInfo.area < radius * radius * 1e-6) {
+  if (needsSectionRetry(fillInfo, radius)) {
     const nudged = point.clone().addScaledVector(normal, radius * 1e-3);
     const probe = new THREE.Plane().setFromNormalAndCoplanarPoint(normal.clone(), nudged);
     const retrySegments = collectSectionSegments(probe);
     const retryFill = buildSectionFillGeometry(stitchSectionLoops(retrySegments), normal);
-    if (retryFill && retryFill.area > (fillInfo?.area ?? 0)) {
+    const picked = pickBetterSectionFill(fillInfo, retryFill);
+    if (picked !== fillInfo) {
       segments = retrySegments;
-      fillInfo = retryFill;
+      fillInfo = picked;
     }
   }
 
