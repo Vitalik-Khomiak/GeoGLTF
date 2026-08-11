@@ -1,5 +1,5 @@
 /* GeoGLTF service worker — офлайн-кеш коду, бібліотеки three.js та моделей. */
-const CACHE = "geogltf-v9";
+const CACHE = "geogltf-v10";
 
 const PRECACHE = [
   "./",
@@ -34,7 +34,9 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(CACHE)
-      .then((cache) => cache.addAll(PRECACHE).catch(() => undefined))
+      // Поресурсно, а не addAll: одна невдала відповідь відкидала весь кеш,
+      // і застосунок лишався без офлайн-режиму, хоча SW уже активувався.
+      .then((cache) => Promise.allSettled(PRECACHE.map((url) => cache.add(url))))
       .then(() => self.skipWaiting()),
   );
 });
