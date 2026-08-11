@@ -64,6 +64,11 @@ const axisColors = {
   z: 0x2d8cff,
 };
 const HINT_STORAGE_KEY = "geogltf-scene-hint-hidden";
+// Дата збірки. Оновлюється разом із версією кеша в sw.js.
+// Раніше тут був запит до api.github.com за датою останнього комміту.
+// Прибрано свідомо: застосунок працює на телефонах учнів і не має робити
+// жодних запитів за межі власного походження.
+const BUILD_DATE = "11.08.2026";
 const gizmoScene = new THREE.Scene();
 const gizmoCamera = new THREE.PerspectiveCamera(36, 1, 0.1, 10);
 const gizmoRoot = new THREE.Group();
@@ -351,76 +356,11 @@ function createSceneAxesHelper(length) {
 }
 
 /**
- * Оновлює дату останнього оновлення коду з GitHub, а локально використовує дату зміни файлу як fallback.
+ * Показує дату збірки коду в шапці бібліотеки.
  */
-async function updateProjectUpdatedLabel() {
-  if (!projectUpdated) {
-    return;
-  }
-
-  projectUpdated.textContent = "Оновлення коду: перевірка...";
-
-  try {
-    const repoInfo = resolveGitHubRepoInfo();
-
-    if (!repoInfo) {
-      throw new Error("GitHub repo info unavailable");
-    }
-
-    const response = await fetch(
-      `https://api.github.com/repos/${repoInfo.owner}/${repoInfo.repo}/commits?per_page=1`,
-    );
-
-    if (!response.ok) {
-      throw new Error(`GitHub API responded with ${response.status}`);
-    }
-
-    const [latestCommit] = await response.json();
-    const isoDate = latestCommit?.commit?.committer?.date ?? latestCommit?.commit?.author?.date;
-
-    if (!isoDate) {
-      throw new Error("Commit date missing");
-    }
-
-    projectUpdated.textContent = `Оновлення коду: ${formatDisplayDate(isoDate)}`;
-  } catch {
-    projectUpdated.textContent = `Оновлення коду: ${getLocalFallbackDate()}`;
-  }
-}
-
-/**
- * Визначає owner/repo для GitHub Pages URL, щоб можна було підтягнути дату останнього коміту.
- */
-function resolveGitHubRepoInfo() {
-  const { hostname, pathname } = window.location;
-  const pathParts = pathname.split("/").filter(Boolean);
-
-  if (hostname.endsWith(".github.io") && pathParts.length > 0) {
-    return {
-      owner: hostname.replace(".github.io", ""),
-      repo: pathParts[0],
-    };
-  }
-
-  return null;
-}
-
-/**
- * Форматує дату у звичний короткий вигляд для українського інтерфейсу.
- */
-function formatDisplayDate(dateInput) {
-  return new Date(dateInput).toLocaleDateString("uk-UA", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
-}
-
-/**
- * Повертає локальний fallback, якщо GitHub API недоступний.
- */
-function getLocalFallbackDate() {
-  return formatDisplayDate(document.lastModified || new Date());
+function updateProjectUpdatedLabel() {
+  if (!projectUpdated) return;
+  projectUpdated.textContent = `Оновлення коду: ${BUILD_DATE}`;
 }
 
 /**
