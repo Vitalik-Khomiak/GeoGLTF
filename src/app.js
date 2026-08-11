@@ -2974,7 +2974,11 @@ const SECTION_PRESETS = [
   {
     keys: ["_pair", "два цилінд", "_similar", "подібні конус"],
     items: [
-      { label: "Обидва тіла", axis: "y", position: -60, tiltDeg: 0, azimuthDeg: 0 },
+      // position -60% рахується від радіуса ОБ'ЄДНАНОЇ обмежувальної сфери
+      // (вона більша за розмір одного тіла — вбирає відстань між ними по X),
+      // тому -60% пролітає повз нижню межу обох тіл (0 контурів). -30% лягає
+      // всередині обох — перевірено на cylinders_pair.glb і cones_similar.glb.
+      { label: "Обидва тіла", axis: "y", position: -30, tiltDeg: 0, azimuthDeg: 0 },
       { label: "Вище короткого", axis: "y", position: 20, tiltDeg: 0, azimuthDeg: 0 },
       { label: "Похилий", axis: "y", position: -40, tiltDeg: 25, azimuthDeg: 0 },
     ],

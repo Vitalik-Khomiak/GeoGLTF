@@ -556,8 +556,29 @@ console.log("Маршрутизація пресетів за назвою мо�
 const presetFactory = new Function(`${
   source.slice(source.indexOf("const SECTION_PRESETS = ["), source.indexOf("/** Пресети для активної моделі"))
 }${extract("pickSectionPresets")}
-  return pickSectionPresets;`);
-const pickSectionPresets = presetFactory();
+  return { SECTION_PRESETS, pickSectionPresets };`);
+const { SECTION_PRESETS, pickSectionPresets } = presetFactory();
+
+// «Обидва тіла» — єдиний пункт таблиці Кроку 1, що не покриває жоден рядок:
+// решта PRESETS вище перевіряють моделі з ОДНИМ тілом (r.loops === 1), а тут
+// навмисно два. Значення axis/position/tiltDeg/azimuthDeg беруться напряму
+// з розпарсеного SECTION_PRESETS, а не дублюються тут вручну, — щоб мовчазна
+// зміна числа в app.js (наприклад, повернення position назад на -60%, коли
+// переріз пролітає повз обидва тіла й дає 0 контурів) ловилася тут, а не
+// лишалась непоміченою до Задачі 11.
+console.log("Пресет «Обидва тіла» для парних моделей (числа з SECTION_PRESETS, не дубльовані вручну)");
+const pairedGroup = SECTION_PRESETS.find((entry) => entry.keys.includes("_pair"));
+const bothBodiesItem = pairedGroup.items.find((item) => item.label === "Обидва тіла");
+for (const [file, area, perimeter] of [
+  ["cylinders_pair.glb", 6.24, 12.55],
+  ["cones_similar.glb", 2.59, 7.44],
+]) {
+  const r = sectionOf(file, { axis: bothBodiesItem.axis, position: bothBodiesItem.position, tilt: bothBodiesItem.tiltDeg, azimuth: bothBodiesItem.azimuthDeg });
+  check(`${file} / Обидва тіла: два контури`, r.loops === 2, `${r.loops}`);
+  check(`${file} / Обидва тіла: S ≈ ${area.toFixed(2)}`, Math.abs(r.area - area) < 0.01, r.area.toFixed(2));
+  check(`${file} / Обидва тіла: P ≈ ${perimeter.toFixed(2)}`, Math.abs(r.perimeter - perimeter) < 0.01, r.perimeter.toFixed(2));
+}
+
 const ROUTING = [
   ["Два подібні конуси", "./assets/models/cones_similar.glb", "Обидва тіла"],
   ["Два циліндри різної висоти", "./assets/models/cylinders_pair.glb", "Обидва тіла"],
