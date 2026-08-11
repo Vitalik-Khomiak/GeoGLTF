@@ -440,6 +440,15 @@ h1, h2, h3, p, dl, dd { margin: 0; }
 }
 .predict-reveal:active { transform: scale(0.97); }
 
+/* Поки ворота «Передбач» відкриті, док недосяжний: у ньому видно S і P із
+   посилання, і кнопка «Розгортка» розкриває фігуру, якої учень ще не бачив.
+   Розмиття прибирає числа з очей, `pointer-events` — доступ до кнопок. */
+.predict-gate-active .viewer-dock {
+  pointer-events: none;
+  opacity: 0.3;
+  filter: blur(3px);
+}
+
 /* ===================== СТАН ПОМИЛКИ БІБЛІОТЕКИ ===================== */
 .asset-card-error {
   grid-column: 1 / -1;

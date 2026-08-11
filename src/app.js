@@ -124,7 +124,6 @@ loadPublishedLibrary();
 // константи (sectionState тощо) встигли ініціалізуватися до першого рендеру.
 requestAnimationFrame(animate);
 setStatus("Готово до завантаження моделі");
-window.__geogltfReady = true;
 
 /**
  * Створює WebGL-рендерер з адаптацією під щільність екрана.
@@ -2629,6 +2628,18 @@ function syncMobileViewportHeight() {
     return;
   }
 
+  // Сторінку масштабовано щипком. `visualViewport` тоді менший за layout не тому,
+  // що з'явилась браузерна обгортка чи клавіатура, — а рахунок нижче виходить
+  // із цього припущення й складає панель до мінімальних 320 px. Доки діяв
+  // `user-scalable=no`, іншої причини бути не могло; тепер вона є.
+  if ((window.visualViewport?.scale ?? 1) > 1.01) {
+    dropZone.style.height = "";
+    dropZone.style.minHeight = "";
+    viewerPanel.style.minHeight = "";
+    viewerPanel.style.height = "";
+    return;
+  }
+
   const visualViewport = window.visualViewport;
   const viewportHeight = visualViewport?.height ?? window.innerHeight;
   const viewportOffsetTop = visualViewport?.offsetTop ?? 0;
@@ -2953,6 +2964,10 @@ function openPredictGate(asset) {
   }
   predictGateActive = true;
   overlay.classList.remove("is-hidden");
+  // Оверлей лежить усередині канваса, а док — його сусід, тож сам по собі оверлей
+  // дока не перекриває. Без цього класу учень бачить у доці S і P із посилання
+  // ще до того, як записав здогад, і може ввімкнути розгортку по прихованій фігурі.
+  appShell?.classList.add("predict-gate-active");
   syncUnfoldVisibility();
 }
 
@@ -2962,6 +2977,7 @@ function openPredictGate(asset) {
 function closePredictGate() {
   predictGateActive = false;
   document.querySelector("#predictOverlay")?.classList.add("is-hidden");
+  appShell?.classList.remove("predict-gate-active");
   syncUnfoldVisibility();
   frameCurrentModel();
 }
@@ -3255,6 +3271,15 @@ function buildSectionVisual() {
       segments = retrySegments;
       fillInfo = picked;
     }
+  }
+
+  // Площина може ковзати по грані нульової товщини: контур замикається, але його
+  // площа — числовий шум. Мікрозсув такого не рятує, бо на зсунутій площині шум
+  // той самий. Показати це число не можна: воно виглядає як звичайний результат
+  // і потрапляє в робочий аркуш. Тому чисел немає взагалі, а контур лишається
+  // на екрані — учень бачить, що площина щось зачепила.
+  if (needsSectionRetry(fillInfo, radius)) {
+    fillInfo = null;
   }
 
   if (segments.length) {
@@ -4377,6 +4402,11 @@ function bindHelpAndLoading() {
 }
 
 bindHelpAndLoading();
+
+// Прапорець ставиться в САМОМУ КІНЦІ модуля, а не в блоці ініціалізації. Модуль
+// виконується до останнього рядка, і помилка в нижній половині лишала б прапорець
+// піднятим: сторож запуску мовчить, а половина інструментів мертва.
+window.__geogltfReady = true;
 
 /* ---------- ОФЛАЙН-РЕЖИМ (SERVICE WORKER) ---------- */
 if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {

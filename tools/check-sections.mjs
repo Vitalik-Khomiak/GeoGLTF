@@ -346,11 +346,18 @@ function sectionOf(file, opts = {}) {
     }
   }
 
+  // Та сама фінальна перевірка, що й у buildSectionVisual: якщо після повтору
+  // результат усе ще вироджений, чисел не показуємо взагалі.
+  if (app.needsSectionRetry(fillInfo, radius)) {
+    fillInfo = null;
+  }
+
   return {
     loops: loops.length,
     vertices: loops.map((l) => l.points.length),
     area: fillInfo?.area ?? 0,
     perimeter: loops.reduce((s, l) => s + l.perimeter, 0),
+    hasNumbers: Boolean(fillInfo),
   };
 }
 
@@ -514,6 +521,27 @@ console.log("buildSectionFillGeometry: hasOpenLoop");
 
   const allClosed = app.buildSectionFillGeometry([closedSquare], normal);
   check("лише замкнені контури: hasOpenLoop === false", allClosed?.hasOpenLoop === false);
+}
+
+// Площина ковзає по грані нульової товщини: у `cube_slice.glb` вузол зрізу — це
+// плаский аркуш, більший за сам куб. Січна площина може промахнутися повз куб,
+// але зачепити аркуш, і тоді контур замикається з площею на рівні числового шуму
+// й цілком реальним периметром. Раніше це давало учневі `S ≈ 0.00 · P ≈ 7.47`,
+// що виглядає як звичайний результат і потрапляє в робочий аркуш.
+console.log("Ковзання площини по грані нульової товщини");
+for (const offset of [-49, -45, -40, 40, 45, 49]) {
+  const result = sectionOf("cube_slice.glb", { position: offset });
+  check(
+    `cube_slice, вісь Y, зсув ${offset}: чисел немає`,
+    result.hasNumbers === false,
+    result.hasNumbers ? `S ≈ ${result.area.toFixed(2)} · P ≈ ${result.perimeter.toFixed(2)}` : "порожньо",
+  );
+}
+{
+  // А здоровий переріз тієї самої моделі числа показує — фільтр не з'їдає зайвого.
+  const healthy = sectionOf("cube_slice.glb", { position: 10 });
+  check("cube_slice, зсув 10: числа є", healthy.hasNumbers === true);
+  check("cube_slice, зсув 10: S ≈ 4.00", Math.abs(healthy.area - 4) < 0.01, healthy.area.toFixed(2));
 }
 
 if (failures) {

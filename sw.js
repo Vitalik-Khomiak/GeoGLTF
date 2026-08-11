@@ -1,5 +1,5 @@
 /* GeoGLTF service worker — офлайн-кеш коду, бібліотеки three.js та моделей. */
-const CACHE = "geogltf-v10";
+const CACHE = "geogltf-v11";
 
 const PRECACHE = [
   "./",
