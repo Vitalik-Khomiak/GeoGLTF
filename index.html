@@ -18,6 +18,13 @@
         function showStartupHelp() {
           if (window.__geogltfReady || document.getElementById("startupHelp")) return;
           var isFile = location.protocol === "file:";
+          var probe = document.createElement("canvas");
+          var hasWebgl = false;
+          try {
+            hasWebgl = Boolean(probe.getContext("webgl2") || probe.getContext("webgl"));
+          } catch (e) {
+            hasWebgl = false;
+          }
           var cmd = "python -m http.server 8000";
           var el = document.createElement("div");
           el.id = "startupHelp";
@@ -28,9 +35,11 @@
             '<div style="max-width:460px;background:#1b2740;border:1px solid #2b3a5c;border-radius:18px;padding:24px 22px;box-shadow:0 18px 50px rgba(0,0,0,0.5);color:#eaf0fb">' +
             '<div style="font-size:18px;font-weight:800;margin-bottom:10px">GeoGLTF не зміг запуститися</div>' +
             '<p style="margin:0 0 14px;font-size:14px;line-height:1.55;color:#c7d2e8">' +
-            (isFile
-              ? "Сторінку відкрито як файл (<b>file://</b>). У цьому режимі браузер блокує завантаження 3D-рушія. Запустіть локальний сервер у папці проєкту:"
-              : "Не вдалося завантажити 3D-рушій. Можливо, файли ще синхронізуються (OneDrive) або заблоковано мережу. Спробуйте оновити сторінку за хвилину, або запустіть локальний сервер у папці проєкту:") +
+            (!hasWebgl
+              ? "Пристрій не дає браузеру доступу до 3D-графіки (WebGL). Спробуйте інший браузер або вимкніть режим економії. На цьому пристрої застосунок працювати не зможе."
+              : isFile
+                ? "Сторінку відкрито як файл (<b>file://</b>). У цьому режимі браузер блокує завантаження 3D-рушія. Запустіть локальний сервер у папці проєкту:"
+                : "Не вдалося завантажити 3D-рушій. Можливо, повільне з'єднання або файли ще синхронізуються. Спробуйте оновити сторінку.") +
             "</p>" +
             '<div style="display:flex;gap:8px;align-items:center;background:#0f172a;border:1px solid #2b3a5c;border-radius:10px;padding:10px 12px;font-family:monospace;font-size:13px"><span style="flex:1;white-space:nowrap;overflow:auto">' +
             cmd +
@@ -49,7 +58,18 @@
           };
         }
         window.addEventListener("DOMContentLoaded", function () {
-          setTimeout(showStartupHelp, 4500);
+          // 8 секунд, а не 4,5: перше завантаження — близько 330 КБ, і клас,
+          // що відкриває застосунок одночасно, у менший час не вкладається.
+          setTimeout(showStartupHelp, 8000);
+          // Якщо застосунок таки піднявся після показу підказки, прибрати її:
+          // раніше вона лишалася на екрані назавжди й читалася як поломка.
+          var watch = setInterval(function () {
+            if (!window.__geogltfReady) return;
+            clearInterval(watch);
+            var el = document.getElementById("startupHelp");
+            if (el) el.remove();
+          }, 500);
+          setTimeout(function () { clearInterval(watch); }, 60000);
         });
       })();
     </script>
