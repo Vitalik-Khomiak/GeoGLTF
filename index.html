@@ -131,8 +131,18 @@
                 <li><b>GeoGebra ⤴</b> — копіює вершини многогранника як команди A=(x,y,z) для GeoGebra.</li>
                 <li><b>Розгортка</b> — анімація розгортання: куб, паралелепіпед, піраміди, призми, циліндр, конус. Повзунком можна зупинити на будь-якій фазі.</li>
                 <li><b>Центр</b> — вписати фігуру в кадр, якщо вона втекла з екрана (клавіша r).</li>
+                <li><b>Спершу передбач</b> — якщо вчитель дав посилання з таким режимом, фігура відкриється після того, як буде записано здогад.</li>
                 <li>Довідка — клавіша h або ?, закрити — Esc.</li>
               </ul>
+            </div>
+          </div>
+
+          <div id="predictOverlay" class="help-overlay predict-overlay is-hidden" role="dialog" aria-label="Спершу передбач">
+            <div class="help-card">
+              <p class="help-title">Спершу передбач</p>
+              <p id="predictQuestion" class="predict-question"></p>
+              <p class="predict-note">Запиши здогад у зошит або в робочий аркуш. Фігура відкриється після цього.</p>
+              <button id="predictReveal" class="predict-reveal" type="button">Записав здогад — показати фігуру</button>
             </div>
           </div>
 

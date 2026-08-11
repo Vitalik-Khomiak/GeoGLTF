@@ -96,6 +96,10 @@ const sessionAssets = [];
 let libraryLoadFailed = false;
 let activeAsset = null;
 let activeUnfoldController = null;
+// Оголошено тут (а не внизу біля інших констант перерізу), бо syncUnfoldVisibility()
+// читає цей прапорець і стоїть у верхній половині файла — інакше при першому ж
+// завантаженні моделі впаде з ReferenceError (TDZ).
+let predictGateActive = false;
 let viewportResizeObserver = null;
 let viewportResizeObserverTimeoutId = 0;
 const unfoldState = {
@@ -1471,7 +1475,7 @@ function syncUnfoldVisibility() {
   const isUnfoldVisible = unfoldState.enabled && Boolean(activeUnfoldController);
 
   if (activeModelRoot) {
-    activeModelRoot.visible = !isUnfoldVisible;
+    activeModelRoot.visible = !isUnfoldVisible && !predictGateActive;
   }
 
   if (activeUnfoldController) {
@@ -3082,6 +3086,34 @@ function updateModelInfoCard(asset) {
   modelInfoCard.classList.remove("is-hidden");
 }
 
+/**
+ * Ховає фігуру й показує запитання до неї. Крок «Передбач» має передувати
+ * роботі з моделлю: якщо учень спершу покрутить фігуру, а тоді почує
+ * запитання, він прочитає відповідь з екрана.
+ */
+function openPredictGate(asset) {
+  const overlay = document.querySelector("#predictOverlay");
+  const question = document.querySelector("#predictQuestion");
+  if (!overlay) return;
+  if (question) {
+    question.textContent = pickModelQuestion(asset)
+      || "Опиши, якою ти уявляєш цю фігуру: скільки в неї граней, ребер, вершин.";
+  }
+  predictGateActive = true;
+  overlay.classList.remove("is-hidden");
+  syncUnfoldVisibility();
+}
+
+/**
+ * Закриває ворота «Передбач»: показує фігуру й вписує її в кадр.
+ */
+function closePredictGate() {
+  predictGateActive = false;
+  document.querySelector("#predictOverlay")?.classList.add("is-hidden");
+  syncUnfoldVisibility();
+  frameCurrentModel();
+}
+
 function bindEnhancementEvents() {
   viewFrontButton?.addEventListener("click", () => setNamedView("front"));
   viewTopButton?.addEventListener("click", () => setNamedView("top"));
@@ -3093,6 +3125,7 @@ function bindEnhancementEvents() {
   modelInfoClose?.addEventListener("click", () => {
     modelInfoCard?.classList.add("is-hidden");
   });
+  document.querySelector("#predictReveal")?.addEventListener("click", closePredictGate);
   document.addEventListener("fullscreenchange", () => {
     setTimeout(() => {
       resizeRenderer();
@@ -3156,6 +3189,7 @@ async function openModelFromQuery() {
     await loadAsset(target, { switchMode: true });
     const section = params.get("sec");
     if (section) applySectionFromQuery(section);
+    if (params.get("predict") === "1") openPredictGate(target);
   }
 }
 

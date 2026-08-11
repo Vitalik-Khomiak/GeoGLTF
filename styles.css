@@ -424,6 +424,22 @@ h1, h2, h3, p, dl, dd { margin: 0; }
 .help-list li { font-size: 13px; line-height: 1.5; color: var(--ink); }
 .help-list b { color: var(--brand-ink); }
 
+/* ===================== СПЕРШУ ПЕРЕДБАЧ ===================== */
+.predict-overlay .help-card { text-align: center; }
+.predict-question { font-size: 15.5px; font-weight: 700; line-height: 1.5; margin: 10px 0 8px; }
+.predict-note { font-size: 13px; color: var(--muted); margin: 0 0 16px; }
+.predict-reveal {
+  width: 100%;
+  border: none;
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: #fff;
+  padding: 13px;
+  font-size: 14px;
+  font-weight: 700;
+}
+.predict-reveal:active { transform: scale(0.97); }
+
 /* ===================== СТАН ПОМИЛКИ БІБЛІОТЕКИ ===================== */
 .asset-card-error {
   grid-column: 1 / -1;
