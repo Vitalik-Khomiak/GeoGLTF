@@ -25,37 +25,51 @@
           } catch (e) {
             hasWebgl = false;
           }
-          var cmd = "python -m http.server 8000";
+          var message = !hasWebgl
+            ? "Пристрій не дає браузеру доступу до 3D-графіки (WebGL). Спробуйте інший браузер або вимкніть режим економії. На цьому пристрої застосунок працювати не зможе."
+            : isFile
+              ? "Сторінку відкрито як файл (<b>file://</b>). У цьому режимі браузер блокує завантаження 3D-рушія. Запустіть локальний сервер у папці проєкту:"
+              : "Не вдалося завантажити 3D-рушій. Можливо, повільне з'єднання або файли ще синхронізуються. Спробуйте оновити сторінку.";
           var el = document.createElement("div");
           el.id = "startupHelp";
           el.setAttribute("role", "alertdialog");
           el.style.cssText =
             "position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(15,23,42,0.94);font-family:'Segoe UI',system-ui,sans-serif";
-          el.innerHTML =
+          var html =
             '<div style="max-width:460px;background:#1b2740;border:1px solid #2b3a5c;border-radius:18px;padding:24px 22px;box-shadow:0 18px 50px rgba(0,0,0,0.5);color:#eaf0fb">' +
             '<div style="font-size:18px;font-weight:800;margin-bottom:10px">GeoGLTF не зміг запуститися</div>' +
             '<p style="margin:0 0 14px;font-size:14px;line-height:1.55;color:#c7d2e8">' +
-            (!hasWebgl
-              ? "Пристрій не дає браузеру доступу до 3D-графіки (WebGL). Спробуйте інший браузер або вимкніть режим економії. На цьому пристрої застосунок працювати не зможе."
-              : isFile
-                ? "Сторінку відкрито як файл (<b>file://</b>). У цьому режимі браузер блокує завантаження 3D-рушія. Запустіть локальний сервер у папці проєкту:"
-                : "Не вдалося завантажити 3D-рушій. Можливо, повільне з'єднання або файли ще синхронізуються. Спробуйте оновити сторінку.") +
-            "</p>" +
-            '<div style="display:flex;gap:8px;align-items:center;background:#0f172a;border:1px solid #2b3a5c;border-radius:10px;padding:10px 12px;font-family:monospace;font-size:13px"><span style="flex:1;white-space:nowrap;overflow:auto">' +
-            cmd +
-            '</span><button id="shCopy" type="button" style="border:none;background:#3b5bdb;color:#fff;border-radius:8px;padding:7px 11px;font-weight:700;cursor:pointer">Копіювати</button></div>' +
-            '<p style="margin:12px 0 0;font-size:13px;color:#9fb0cf">Потім відкрийте <b>http://localhost:8000</b></p>' +
-            '<button id="shReload" type="button" style="margin-top:16px;width:100%;border:none;background:#10b981;color:#fff;border-radius:10px;padding:12px;font-weight:700;font-size:14px;cursor:pointer">Оновити сторінку</button>' +
-            "</div>";
+            message +
+            "</p>";
+          // Пораду про локальний сервер і кнопки нижче показуємо лише тоді, коли причина
+          // не у відсутності WebGL: без 3D-графіки на пристрої ні локальний сервер,
+          // ні перезавантаження сторінки нічого не змінять, а порада виглядає як
+          // підказка, що суперечить щойно прочитаному поясненню.
+          var cmd = "python -m http.server 8000";
+          if (hasWebgl) {
+            html +=
+              '<div style="display:flex;gap:8px;align-items:center;background:#0f172a;border:1px solid #2b3a5c;border-radius:10px;padding:10px 12px;font-family:monospace;font-size:13px"><span style="flex:1;white-space:nowrap;overflow:auto">' +
+              cmd +
+              '</span><button id="shCopy" type="button" style="border:none;background:#3b5bdb;color:#fff;border-radius:8px;padding:7px 11px;font-weight:700;cursor:pointer">Копіювати</button></div>' +
+              '<p style="margin:12px 0 0;font-size:13px;color:#9fb0cf">Потім відкрийте <b>http://localhost:8000</b></p>' +
+              '<button id="shReload" type="button" style="margin-top:16px;width:100%;border:none;background:#10b981;color:#fff;border-radius:10px;padding:12px;font-weight:700;font-size:14px;cursor:pointer">Оновити сторінку</button>';
+          }
+          html += "</div>";
+          el.innerHTML = html;
           document.body.appendChild(el);
           var copyBtn = document.getElementById("shCopy");
-          copyBtn.onclick = function () {
-            if (navigator.clipboard) navigator.clipboard.writeText(cmd);
-            copyBtn.textContent = "Скопійовано";
-          };
-          document.getElementById("shReload").onclick = function () {
-            location.reload();
-          };
+          if (copyBtn) {
+            copyBtn.onclick = function () {
+              if (navigator.clipboard) navigator.clipboard.writeText(cmd);
+              copyBtn.textContent = "Скопійовано";
+            };
+          }
+          var reloadBtn = document.getElementById("shReload");
+          if (reloadBtn) {
+            reloadBtn.onclick = function () {
+              location.reload();
+            };
+          }
         }
         window.addEventListener("DOMContentLoaded", function () {
           // 8 секунд, а не 4,5: перше завантаження — близько 330 КБ, і клас,
