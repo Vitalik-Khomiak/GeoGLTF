@@ -2927,13 +2927,20 @@ function slugifyTitle(text) {
     .replace(/^-+|-+$/g, "");
 }
 
+/** Стан перерізу для посилання: вісь, зсув, нахил, поворот. */
+function serializeSectionState() {
+  const { axis, position, tiltDeg, azimuthDeg } = sectionState;
+  return `${axis},${position},${tiltDeg},${azimuthDeg}`;
+}
+
 async function shareCurrentModel() {
   if (!activeAsset) {
     setStatus("Спершу відкрийте модель");
     return;
   }
   const slug = slugifyTitle(activeAsset.title);
-  const url = `${location.origin}${location.pathname}?model=${encodeURIComponent(slug)}`;
+  const sectionPart = sectionState.enabled ? `&sec=${encodeURIComponent(serializeSectionState())}` : "";
+  const url = `${location.origin}${location.pathname}?model=${encodeURIComponent(slug)}${sectionPart}`;
   try {
     if (navigator.share) {
       await navigator.share({ title: `GeoGLTF — ${activeAsset.title}`, url });
@@ -3103,6 +3110,33 @@ function bindEnhancementEvents() {
   });
 }
 
+/**
+ * Ставить переріз із параметра `sec` посилання.
+ * Дає вчителеві роздати класу конкретний переріз через QR, а не диктувати
+ * положення повзунків голосом.
+ */
+function applySectionFromQuery(value) {
+  const parts = String(value).split(",");
+  if (parts.length !== 4) return false;
+  const [axis, position, tilt, azimuth] = parts;
+  if (!["x", "y", "z"].includes(axis)) return false;
+  const numbers = [position, tilt, azimuth].map(Number);
+  if (numbers.some((n) => !Number.isFinite(n))) return false;
+
+  sectionState.axis = axis;
+  sectionState.position = numbers[0];
+  sectionState.tiltDeg = numbers[1];
+  sectionState.azimuthDeg = numbers[2];
+
+  sectionAxisButtons.forEach((button) => button.classList.toggle("is-active", button.dataset.axis === axis));
+  if (sectionPositionSlider) sectionPositionSlider.value = String(numbers[0]);
+  if (sectionTiltSlider) sectionTiltSlider.value = String(numbers[1]);
+  if (sectionAzimuthSlider) sectionAzimuthSlider.value = String(numbers[2]);
+  if (sectionToggle) sectionToggle.checked = true;
+  setSectionEnabled(true);
+  return true;
+}
+
 async function openModelFromQuery() {
   const params = new URLSearchParams(location.search);
   const wanted = params.get("model");
@@ -3119,7 +3153,9 @@ async function openModelFromQuery() {
     return bySlug || byFile;
   });
   if (target) {
-    loadAsset(target, { switchMode: true });
+    await loadAsset(target, { switchMode: true });
+    const section = params.get("sec");
+    if (section) applySectionFromQuery(section);
   }
 }
 
